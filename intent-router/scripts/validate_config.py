@@ -10,12 +10,30 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from graphs.registry import GraphRegistry, load_registry  # noqa: E402
+from modelplane.registry import ModelRegistry, load_model_registry  # noqa: E402
+from modelplane.routing import (  # noqa: E402
+    ModelRoutingTable,
+    assert_versions,
+    choose,
+    load_model_routing,
+    unreachable_configs,
+)
 from router.catalog import Catalog, load_catalog  # noqa: E402
 from router.models import ConfigError  # noqa: E402
 from router.table import DecisionTable, capability_rung, load_table  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS = (ROOT / "catalog" / "v1.yaml", ROOT / "table" / "v1.yaml", ROOT / "graphs" / "registry.yaml")
+MODEL_DEFAULTS = (ROOT / "modelplane" / "registry.yaml", ROOT / "modelplane" / "routing.yaml")
+#: every task the plane must be able to serve before a build is allowed out
+REQUIRED_MODEL_ROUTES = (
+    ("classify", "benefits", "read"),
+    ("classify", "retirement", "read"),
+    ("compose", "benefits", "read"),
+    ("compose", "retirement", "read"),
+    ("compose", "retirement", "propose"),
+    ("compose", "retirement", "execute"),
+)
 
 WRITE_SAFE_BANDS = ("RULE_OR_HIGH", "HIGH", "RULE")
 GUARD_CAPABILITIES = ("FROZEN", "unentitled")
@@ -61,9 +79,55 @@ def validate(catalog: Catalog, table: DecisionTable, registry: GraphRegistry) ->
         if "RetrieveEvidence" in spec.manifest and row.risk == "READ" and row.evidence is None:
             errors.append(f"{where}: {row.graph} reads evidence but the row declares no evidence policy")
 
+    errors.extend(_validate_manifest_nodes(registry))
     errors.extend(_validate_guards(table))
     errors.extend(_validate_slot_coverage(catalog, table))
     errors.extend(_validate_band_edges(catalog, table))
+    return errors
+
+
+def validate_model_plane(models: ModelRegistry, routing: ModelRoutingTable) -> List[str]:
+    """§5 gate: an untested config, an unreachable config or an uncovered route fails the build."""
+    errors: List[str] = []
+    try:
+        assert_versions(models, routing)
+    except ConfigError as exc:
+        errors.append(str(exc))
+
+    for config in models.served.values():
+        if not config.eval.passing:
+            errors.append(f"{config.name}: served without a passing eval")
+        if config.ring != "prod" and config.name in {
+            pointer.config for pointer in models.serving.values()
+        }:
+            errors.append(f"{config.name}: serving pointer targets a {config.ring} ring config")
+
+    if models.get(models.frontier).adapter is not None:
+        errors.append(f"{models.frontier}: the frontier escalation must not carry an adapter")
+
+    for row in routing.rows:
+        if row.config not in models.served:
+            errors.append(f"model row {row.index}: unknown served config {row.config!r}")
+
+    for task, domain, posture in REQUIRED_MODEL_ROUTES:
+        try:
+            choose(models, routing, task=task, domain=domain, posture=posture, tenant="any-tenant")
+        except ConfigError as exc:
+            errors.append(f"model routing: {exc}")
+
+    for name in unreachable_configs(models, routing):
+        errors.append(f"{name}: served config no row can reach")
+    return errors
+
+
+def _validate_manifest_nodes(registry: GraphRegistry) -> List[str]:
+    """A LangGraph node set is compiled from the manifest, so the manifest must be sane."""
+    errors = []
+    for spec in registry.graphs.values():
+        if len(set(spec.manifest)) != len(spec.manifest):
+            errors.append(f"{spec.name}: duplicate tool in the manifest")
+        if not spec.nodes:
+            errors.append(f"{spec.name}: no declared nodes to enter at")
     return errors
 
 
@@ -146,10 +210,15 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--catalog", type=Path, default=DEFAULTS[0])
     parser.add_argument("--table", type=Path, default=DEFAULTS[1])
     parser.add_argument("--registry", type=Path, default=DEFAULTS[2])
+    parser.add_argument("--models", type=Path, default=MODEL_DEFAULTS[0])
+    parser.add_argument("--model-routing", type=Path, default=MODEL_DEFAULTS[1])
     args = parser.parse_args(argv)
 
     try:
         errors = validate(load_catalog(args.catalog), load_table(args.table), load_registry(args.registry))
+        errors += validate_model_plane(
+            load_model_registry(args.models), load_model_routing(args.model_routing)
+        )
     except ConfigError as exc:
         errors = [str(exc)]
 

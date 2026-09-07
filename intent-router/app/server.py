@@ -6,6 +6,7 @@ and the "execution" behind them is stubbed.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -21,7 +22,9 @@ from pydantic import BaseModel, Field  # noqa: E402
 from app.corridor import ConfirmationError, ConfirmationStore  # noqa: E402
 from app.responder import execute_pending, respond  # noqa: E402
 from classifier import StubClassifier  # noqa: E402
+from classifier.model import ModelClassifier  # noqa: E402
 from graphs.registry import load_registry  # noqa: E402
+from modelplane.gateway import Scorecard, backend_from_env, build_gateway  # noqa: E402
 from router.catalog import load_catalog  # noqa: E402
 from router.engine import IntentRouter  # noqa: E402
 from router.models import RequestContext, RoutingError  # noqa: E402
@@ -32,13 +35,21 @@ CATALOG = load_catalog(APP_ROOT / "catalog" / "v1.yaml")
 TABLE = load_table(APP_ROOT / "table" / "v1.yaml")
 REGISTRY = load_registry(APP_ROOT / "graphs" / "registry.yaml")
 TRACE = TraceCollector()
+
+#: fake backend unless MODEL_BACKEND=openai; the composer never invents a fact either way
+GATEWAY = build_gateway(backend=backend_from_env())
 ROUTER = IntentRouter(
     catalog=CATALOG,
     table=TABLE,
     registry=REGISTRY,
-    classifier=StubClassifier(catalog=CATALOG),
+    classifier=(
+        ModelClassifier(gateway=GATEWAY, catalog=CATALOG)
+        if os.environ.get("CLASSIFIER", "stub").lower() == "model"
+        else StubClassifier(catalog=CATALOG)
+    ),
     trace_sink=TRACE,
 )
+SCORECARD = Scorecard()
 
 TENANT_ID = "tenant-acme"
 #: the confirmation corridor lives server-side: the client never holds a nonce it can replay
@@ -89,6 +100,7 @@ class ChatResponse(BaseModel):
     tool_calls: List[str]
     decision: Dict[str, Any]
     conversation_state: Dict[str, Any]
+    model: Optional[Dict[str, Any]] = None
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -109,8 +121,24 @@ async def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
     turn = await respond(
-        decision, REGISTRY, context, STORE, evidence_age_days=request.context.evidence_age_days
+        decision,
+        REGISTRY,
+        context,
+        STORE,
+        evidence_age_days=request.context.evidence_age_days,
+        gateway=GATEWAY,
     )
+    SCORECARD.answers += 1
+    SCORECARD.confidence_sum += decision.confidence
+    if turn.model:
+        SCORECARD.validator_catch += sum(
+            1 for attempt in turn.model.get("attempts", ()) if not attempt["ok"]
+        )
+        SCORECARD.escalation += int(bool(turn.model.get("escalated")))
+        SCORECARD.handoff += int(bool(turn.model.get("escalated_to_human")))
+        SCORECARD.cost_usd = round(SCORECARD.cost_usd + turn.model.get("cost_usd", 0.0), 6)
+    if decision.graph == "G-FALLBACK":
+        SCORECARD.handoff += 1
     return ChatResponse(
         assistant=turn.text,
         options=turn.options,
@@ -141,6 +169,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             "evidence_policy": decision.evidence_policy,
         },
         conversation_state=dict(turn.conversation_state),
+        model=turn.model,
     )
 
 
@@ -185,6 +214,48 @@ def _receipt_payload(receipt) -> Dict[str, Any]:
         "executed_at": receipt.executed_at,
         "reversal": receipt.reversal,
         "duplicate": receipt.duplicate,
+    }
+
+
+@app.get("/api/models")
+async def models() -> Dict[str, Any]:
+    """What is being served, on what eval, in which ring — plus the live scorecard."""
+    registry = GATEWAY.registry
+    return {
+        "versions": {"registry": registry.version, "routing": GATEWAY.table.version},
+        "frontier": registry.frontier,
+        "serving": {
+            task: {"config": pointer.config, "rollback_to": pointer.rollback_to}
+            for task, pointer in registry.serving.items()
+        },
+        "served": [
+            {
+                "name": config.name,
+                "provider": config.provider,
+                "base": config.base,
+                "adapter": config.adapter,
+                "scope": config.scope,
+                "task": config.task,
+                "ring": config.ring,
+                "eval_id": config.eval.eval_id,
+                "score": config.eval.score,
+                "judge_family": config.eval.judge_family,
+                "measured_gap": config.eval.measured_gap,
+            }
+            for config in registry.served.values()
+        ],
+        "rows": [
+            {
+                "index": row.index,
+                "task": row.task,
+                "domain": row.domain,
+                "posture": row.posture,
+                "tenant": row.tenant,
+                "config": row.config,
+            }
+            for row in GATEWAY.table.rows
+        ],
+        "scorecard": SCORECARD.snapshot(),
     }
 
 

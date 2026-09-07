@@ -109,3 +109,50 @@ Rows are ordered by descending rung, so the highest one the tenant is entitled t
 - Identity (tenant, participant, auth) comes only from `RequestContext`; no code path reads it from
   the utterance, and a test lints for it.
 - Any unhandled condition raises `RoutingError` rather than improvising a route.
+
+## Model plane
+
+Models interpret and phrase; they never choose their own route or their own weights. A request
+carries `(task, domain, posture, tenant)` from the *deterministic* routing decision, and
+`modelplane/routing.yaml` — an ordered, first-match table — maps that to exactly one served config
+in `modelplane/registry.yaml`:
+
+```
+deterministic router → model routing table → served config → gateway → validator
+```
+
+A served config is a base model plus at most one adapter, its decoding parameters, cost class,
+rollout ring and its eval record. The adapter ladder is `tenant → task → domain`, and a tenant-pinned
+row is only legal when that config's eval shows a positive measured gap. A config whose eval is
+missing, failing, or judged by its own model family never loads; `scripts/validate_config.py` also
+refuses a serving pointer aimed at a canary-ring config, an unroutable required `(task, domain,
+posture)`, and a served config no row can reach. Rollback is a pointer flip in `serving:`.
+
+Composition is validated, not trusted: `validate_composition` rejects any number the tools did not
+produce, so the model can only restate facts the deterministic path already computed. Failure is a
+fixed ladder — **one** retry on the same config, then the frontier config, then `EscalatedToHuman` —
+and every attempt is recorded on the turn's `model` trace and counted by the scorecard
+(`/api/models`): validator catches, abstentions, escalations, handoffs, containment and cost per
+successful answer.
+
+The classifier can be model-backed (`classifier/model.py`), but it only ever proposes
+`(intent, slots, confidence, alternatives)` against the closed catalog — an intent outside the
+catalog degrades to `OUT_OF_SCOPE` rather than becoming a new capability.
+
+```bash
+MODEL_BACKEND=openai OPENAI_API_KEY=... uvicorn app.server:app   # real calls
+uvicorn app.server:app                                          # deterministic fake backend
+```
+
+## LangGraph execution
+
+`GRAPH_BACKEND=langgraph` runs the approved graphs as compiled `StateGraph`s instead of the stub.
+The graphs are compiled *from* the registry manifest, so the reachable node set is exactly the tool
+set the graph was approved for and an off-manifest tool has no node to run in.
+
+`build_corridor` compiles the board's transaction branch — `extract_action → policy_check →
+validate_action → create_preview → wait_confirmation → revalidate → execute → verify → receipt` —
+where `wait_confirmation` is a real LangGraph `interrupt()` over a checkpointer. The confirmation
+resumes *that* run, keyed on the proposal id and the nonce issued with it; a wrong nonce or another
+proposal's confirmation cannot resume it, and cannot open a second transaction. Routing budgets map
+to the runtime recursion limit.

@@ -8,6 +8,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        graph_backend: [stub, langgraph]
+    env:
+      GRAPH_BACKEND: ${{ matrix.graph_backend }}
     defaults:
       run:
         working-directory: intent-router

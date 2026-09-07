@@ -1,0 +1,98 @@
+version: models-v1
+
+# Every served config is a tested config: a config with no passing eval never reaches a request.
+# One adapter per config, never a stack — the ladder picks a scope, it does not compose scopes.
+served:
+  slm-classify-benefits-v3:
+    provider: openai
+    base: gpt-4.1-mini
+    adapter: benefits-classify-lora-v3
+    scope: domain
+    domain: benefits
+    task: classify
+    decoding: {temperature: 0.0, max_output_tokens: 256}
+    cost_per_1k_tokens_usd: 0.0004
+    ring: prod
+    eval:
+      eval_id: golden-classify-2026-08
+      judge_family: anthropic
+      score: 0.94
+      threshold: 0.90
+      measured_gap: 0.0
+
+  slm-compose-benefits-v5:
+    provider: openai
+    base: gpt-4.1-mini
+    adapter: benefits-compose-lora-v5
+    scope: domain
+    domain: benefits
+    task: compose
+    decoding: {temperature: 0.2, max_output_tokens: 512}
+    cost_per_1k_tokens_usd: 0.0004
+    ring: prod
+    eval:
+      eval_id: golden-compose-2026-08
+      judge_family: anthropic
+      score: 0.92
+      threshold: 0.90
+      measured_gap: 0.0
+
+  slm-compose-retirement-v2:
+    provider: openai
+    base: gpt-4.1-mini
+    adapter: retirement-compose-lora-v2
+    scope: task
+    domain: benefits
+    task: compose
+    decoding: {temperature: 0.1, max_output_tokens: 512}
+    cost_per_1k_tokens_usd: 0.0004
+    ring: prod
+    eval:
+      eval_id: golden-compose-retirement-2026-08
+      judge_family: anthropic
+      score: 0.95
+      threshold: 0.90
+      # the task adapter exists because it beat the domain adapter on the frozen set
+      measured_gap: 0.03
+
+  slm-compose-benefits-v6:
+    provider: openai
+    base: gpt-4.1-mini
+    adapter: benefits-compose-lora-v6
+    scope: domain
+    domain: benefits
+    task: compose
+    decoding: {temperature: 0.2, max_output_tokens: 512}
+    cost_per_1k_tokens_usd: 0.0004
+    ring: canary
+    eval:
+      eval_id: golden-compose-2026-09
+      judge_family: anthropic
+      score: 0.93
+      threshold: 0.90
+      measured_gap: 0.01
+
+  frontier-escalation-v1:
+    provider: openai
+    base: gpt-4.1
+    adapter: null
+    scope: domain
+    domain: benefits
+    task: compose
+    decoding: {temperature: 0.0, max_output_tokens: 512}
+    cost_per_1k_tokens_usd: 0.008
+    ring: prod
+    eval:
+      eval_id: golden-frontier-2026-08
+      judge_family: anthropic
+      score: 0.97
+      threshold: 0.90
+      measured_gap: 0.0
+
+# Promotion is a pointer flip, so a rollback is one too. `rollback_to` must have shipped a ring
+# wider than the pointer it backs out of.
+serving:
+  classify: {config: slm-classify-benefits-v3, rollback_to: slm-classify-benefits-v3}
+  compose: {config: slm-compose-benefits-v5, rollback_to: slm-compose-benefits-v5}
+
+frontier: frontier-escalation-v1

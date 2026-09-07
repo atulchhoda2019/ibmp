@@ -1,0 +1,17 @@
+version: model-routing-v1
+model_registry: models-v1
+
+# Same doctrine as the intent table: ordered rows, first match wins, `any` is a wildcard.
+# The model never chooses its own config — this table chooses it, and the choice is traced.
+# Ladder order: a tenant row outranks a task row outranks a domain row.
+rows:
+  - {task: classify, domain: any, posture: any, tenant: any, config: slm-classify-benefits-v3}
+
+  # tenant scope, and it must carry a measured gap to be legal
+  - {task: compose, domain: retirement, posture: any, tenant: tenant-canary, config: slm-compose-benefits-v6}
+
+  # task scope
+  - {task: compose, domain: retirement, posture: any, tenant: any, config: slm-compose-retirement-v2}
+
+  # domain scope: the default every other request lands on
+  - {task: compose, domain: any, posture: any, tenant: any, config: slm-compose-benefits-v5}

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from graphs.registry import GraphRegistry, Proposal, Receipt
+from modelplane.gateway import Composition, EscalatedToHuman, ModelGateway
 from router.models import RequestContext, RoutingDecision
 
 from app import evidence
@@ -66,6 +67,7 @@ class AssistantTurn:
     receipt: Optional[Dict[str, Any]] = None
     tool_calls: List[str] = field(default_factory=list)
     conversation_state: Dict[str, Any] = field(default_factory=dict)
+    model: Optional[Dict[str, Any]] = None
 
 
 async def respond(
@@ -75,8 +77,9 @@ async def respond(
     store: ConfirmationStore,
     *,
     evidence_age_days: int = 2,
+    gateway: Optional[ModelGateway] = None,
 ) -> AssistantTurn:
-    graph = registry.instantiate(decision.graph)
+    graph = registry.instantiate(decision.graph, budgets=decision.budgets)
     state = dict(decision.conversation_state)
 
     if decision.graph == "G-CLARIFY":
@@ -88,18 +91,20 @@ async def respond(
         )
 
     if decision.graph == "G-DEDUCTIBLE":
-        return await _deductible(decision, graph, state, evidence_age_days)
+        turn = await _deductible(decision, graph, state, evidence_age_days)
+        return compose(turn, gateway, decision, context)
 
     if decision.graph == "G-ELECTIONS-RO":
         await graph.call("GetElections")
         envelope = await _evidence(graph, decision, evidence_age_days)
         verdict = evidence.validate(envelope, decision.evidence_policy)
         text = ELECTIONS.format(plan_id=decision.slots.get("plan_id", "your medical plan"))
-        return AssistantTurn(
+        turn = AssistantTurn(
             text=text if verdict.ok else verdict.message,
             tool_calls=_names(graph),
             conversation_state=state,
         )
+        return compose(turn, gateway, decision, context) if verdict.ok else turn
 
     if decision.graph == "G-CONTRIB-DRAFT":
         return await _draft(decision, graph, state)
@@ -127,6 +132,53 @@ async def respond(
     await graph.call("CsrHandoff", payload=decision.handoff_payload)
     text = NOTHING_TO_CONFIRM if "no_pending_proposal" in decision.ladder_path else FALLBACK
     return AssistantTurn(text=text, tool_calls=_names(graph), conversation_state=state)
+
+
+def compose(
+    turn: AssistantTurn,
+    gateway: Optional[ModelGateway],
+    decision: RoutingDecision,
+    context: RequestContext,
+) -> AssistantTurn:
+    """The answer is already true before the model sees it; the model only says it."""
+    if gateway is None:
+        return turn
+    try:
+        composition = gateway.compose(
+            question=decision.intent,
+            facts={"answer": turn.text},
+            domain=_domain(decision.intent),
+            posture=decision.posture,
+            tenant=context.tenant_id,
+        )
+    except EscalatedToHuman:
+        # Nothing the ladder produced was supportable, so nothing gets said to the participant.
+        return AssistantTurn(
+            text=FALLBACK,
+            tool_calls=turn.tool_calls,
+            conversation_state=turn.conversation_state,
+            model={"escalated_to_human": True},
+        )
+    turn.text = composition.text
+    turn.model = _model_trace(composition)
+    return turn
+
+
+def _domain(intent: str) -> str:
+    return "retirement" if intent.startswith("ret.") else "benefits"
+
+
+def _model_trace(composition: Composition) -> Dict[str, Any]:
+    return {
+        "config": composition.config,
+        "escalated": composition.escalated,
+        "attempts": [
+            {"config": attempt.config, "ok": attempt.ok, "reason": attempt.reason}
+            for attempt in composition.attempts
+        ],
+        "tokens": composition.tokens,
+        "cost_usd": composition.cost_usd,
+    }
 
 
 def _explanation(decision: RoutingDecision) -> str:
