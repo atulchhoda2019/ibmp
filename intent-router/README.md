@@ -7,6 +7,7 @@ one pre-approved graph selection with budgets out. Models interpret, tables deci
 ## Layout
 
 ```
+app/               FastAPI assistant: /api/chat over route(), plus the browser UI in app/static
 router/            engine: stage 0 rules, bands, ladder, slots, cache key, trace
 catalog/v1.yaml    versioned closed intent catalog (slot schemas + stage 0 rule patterns)
 table/v1.yaml      versioned decision table: ordered rows, first match wins
@@ -23,6 +24,20 @@ pip install -r requirements.txt
 python scripts/validate_config.py   # fails the build on an illegal table
 python -m pytest -q
 ```
+
+## Assistant UI
+
+```bash
+uvicorn app.server:app --reload --port 8000   # then open http://localhost:8000
+```
+
+The browser assistant asks the clarifying questions the table produces: `G-CLARIFY` renders as
+clickable named options, picking one resolves the conversation on a single reclassification, and a
+transactional turn ends at a typed proposal with a Confirm button bound to its nonce. The right-hand
+panel shows the fired row, band, budgets, slots, ladder path, cache key and config versions for the
+last turn; the context controls (capability, auth level, freeze, viewing plan) stand in for verified
+request context, which is never parsed from the message. Graph execution is stubbed — the UI is a
+consumer of the planner, not a second one.
 
 ## Use
 

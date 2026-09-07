@@ -62,15 +62,22 @@ class IntentRouter:
     def route(self, utterance: str, context: RequestContext) -> RoutingDecision:
         ladder: List[str] = []
         pending = context.conversation_state.get("pending_clarify")
+        selected = None
         if pending is not None:
             ladder.append("clarify")
             utterance_for_classification = f"{pending['utterance']} {utterance}"
+            selected = self._selected_option(utterance, pending)
         else:
             utterance_for_classification = utterance
 
-        interpretation = self._interpret(
-            utterance_for_classification, context, ladder, reclassified=pending is not None
-        )
+        if selected is not None:
+            # Picking one of the offered named options is a resolution, not an interpretation.
+            ladder.extend(("option_selected", "reclassified"))
+            interpretation = selected
+        else:
+            interpretation = self._interpret(
+                utterance_for_classification, context, ladder, reclassified=pending is not None
+            )
         intent = self.catalog.get(interpretation.intent)
         band = self._band(interpretation)
         ladder.append(f"band={band}")
@@ -110,7 +117,10 @@ class IntentRouter:
         if row.graph == CLARIFY_GRAPH:
             ladder.append("clarify")
             clarifying_question = self._clarifying_question(intent, interpretation, slot_error)
-            conversation_state["pending_clarify"] = {"utterance": utterance_for_classification}
+            conversation_state["pending_clarify"] = {
+                "utterance": utterance_for_classification,
+                "options": [[label, candidate] for label, candidate in clarifying_question["options"]],
+            }
             conversation_state["clarify_count"] = int(context.conversation_state.get("clarify_count", 0)) + 1
         conversation_state.update(slots.values)
 
@@ -176,6 +186,13 @@ class IntentRouter:
             raise RoutingError(f"classifier returned {interpretation.intent!r}, outside the closed catalog")
         ladder.append("reclassified" if reclassified else "classified")
         return interpretation
+
+    def _selected_option(self, utterance: str, pending: Mapping[str, Any]) -> Optional[Interpretation]:
+        answer = utterance.strip().casefold()
+        for label, candidate in pending.get("options", ()):
+            if answer == label.strip().casefold() and candidate in self.catalog:
+                return Interpretation(intent=candidate, confidence=1.0, source="rule")
+        return None
 
     def _band(self, interpretation: Interpretation) -> Band:
         if interpretation.source == "rule":
