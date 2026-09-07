@@ -68,15 +68,16 @@ def test_i3_validation_rejects_unknown_intent(catalog, table, registry):
 
 @pytest.mark.parametrize("band", ["MEDIUM", "LOW"])
 def test_i3_validation_rejects_writes_on_low_confidence_rows(catalog, table, registry, band):
-    broken = _replace_row(table, 4, band=band)
+    broken = _replace_row(table, _write_row_index(table, registry), band=band)
     assert any("write graph" in error for error in validate(catalog, broken, registry))
 
 
 def test_i3_validation_rejects_missing_guards(catalog, table, registry):
-    broken = dataclasses.replace(table, rows=table.rows[2:])
+    broken = dataclasses.replace(table, rows=table.rows[3:])
     errors = validate(catalog, broken, registry)
     assert any("LOW guard" in error for error in errors)
     assert any("FROZEN guard" in error for error in errors)
+    assert any("unentitled guard" in error for error in errors)
 
 
 def test_i3_validation_rejects_non_positive_budgets(catalog, table, registry):
@@ -95,10 +96,47 @@ def test_i4_routing_is_deterministic(router):
     assert len({decision.cache_key for decision in decisions}) == 1
 
 
-def test_no_graph_manifest_contains_an_execute_tool():
+def test_execute_tools_only_appear_in_graphs_that_declare_them():
+    """An Execute* tool is legal only where the registry declares it, reversible and rung-gated."""
     registry = load_registry(REGISTRY_PATH)
     for spec in registry.graphs.values():
-        assert not any(tool.startswith("Execute") for tool in spec.manifest)
+        for tool in spec.manifest:
+            if not tool.startswith("Execute"):
+                continue
+            assert tool in spec.executes
+            assert spec.posture == "execute"
+            assert spec.governance is not None
+            assert spec.governance.reversible
+            assert spec.governance.min_rung >= 2
+
+
+def test_execute_graph_refuses_below_its_rung_or_without_confirmation(registry):
+    with pytest.raises(ConfigError):
+        registry.assert_manifest_legal(
+            "G-CONTRIB-COMMIT", "TRANSACT", capability_enabled=True, rung=1, confirmed=True
+        )
+    with pytest.raises(ConfigError):
+        registry.assert_manifest_legal(
+            "G-CONTRIB-COMMIT", "TRANSACT", capability_enabled=True, rung=2, confirmed=False
+        )
+    registry.assert_manifest_legal(
+        "G-CONTRIB-COMMIT", "TRANSACT", capability_enabled=True, rung=2, confirmed=True
+    )
+
+
+def test_i3_validation_rejects_an_irreversible_execute_graph(catalog, table, registry):
+    spec = registry.get("G-CONTRIB-COMMIT")
+    hardened = dataclasses.replace(
+        spec, governance=dataclasses.replace(spec.governance, reversible=False)
+    )
+    broken = dataclasses.replace(registry, graphs={**registry.graphs, "G-CONTRIB-COMMIT": hardened})
+    assert any("irreversible" in error for error in validate(catalog, table, broken))
+
+
+def test_i3_validation_rejects_an_execute_row_below_the_graphs_rung(catalog, table, registry):
+    index = next(r.index for r in table.rows if r.graph == "G-CONTRIB-COMMIT")
+    broken = _replace_row(table, index, capability="enabled&rung>=1")
+    assert any("cannot reach" in error for error in validate(catalog, broken, registry))
 
 
 def test_unmatched_condition_raises_rather_than_improvising(router, table):
@@ -123,6 +161,10 @@ def test_classifier_output_outside_the_closed_catalog_is_rejected(router, catalo
 def test_registry_rejects_write_graph_on_a_read_row(registry):
     with pytest.raises(ConfigError):
         registry.assert_manifest_legal("G-CONTRIB-CHANGE", "READ", capability_enabled=True)
+
+
+def _write_row_index(table, registry) -> int:
+    return next(row.index for row in table.rows if registry.get(row.graph).writes)
 
 
 def _replace_row(table, index, **changes):

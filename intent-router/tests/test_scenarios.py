@@ -33,11 +33,11 @@ def test_s2_rule_match_bypasses_the_classifier(router, classifier):
     assert decision.entry_node == "step_up_auth"
 
 
-def test_s3_stepped_up_auth_enters_at_build_proposal(router):
+def test_s3_stepped_up_auth_enters_at_create_preview(router):
     decision = router.route(CONTRIB_UTTERANCE, context(auth="stepped_up"))
 
     assert decision.graph == "G-CONTRIB-CHANGE"
-    assert decision.entry_node == "build_proposal"
+    assert decision.entry_node == "create_preview"
 
 
 @pytest.mark.parametrize("auth", ["standard", "stepped_up"])

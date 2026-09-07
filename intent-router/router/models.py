@@ -21,6 +21,8 @@ class RequestContext:
     auth_level: AuthLevel
     tenant_capabilities: Mapping[str, Any] = field(default_factory=dict)
     tenant_frozen: bool = False
+    #: permissions the gateway verified for this participant; an absent key is a denial
+    entitlements: Mapping[str, bool] = field(default_factory=lambda: {"VIEW": True, "CHANGE": True})
     ui_context: Mapping[str, Any] = field(default_factory=dict)
     conversation_state: Mapping[str, Any] = field(default_factory=dict)
 
@@ -31,6 +33,7 @@ class RequestContext:
             auth_level=self.auth_level,
             tenant_capabilities=self.tenant_capabilities,
             tenant_frozen=self.tenant_frozen,
+            entitlements=self.entitlements,
             ui_context=self.ui_context,
             conversation_state=MappingProxyType(dict(state)),
         )
@@ -66,3 +69,9 @@ class RoutingDecision:
     no_data_reads: bool = False
     note: Optional[str] = None
     conversation_state: Mapping[str, Any] = field(default_factory=dict)
+    capability: str = "any"
+    rung: int = 0
+    permission: str = "VIEW"
+    posture: str = "read"
+    band_edges: str = "table"
+    evidence_policy: Optional[Mapping[str, Any]] = None

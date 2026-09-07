@@ -30,8 +30,16 @@
       <p class="hint">Identity and entitlements come from here, never from the message.</p>
       <label>Capability
         <select id="capability">
-          <option value="enabled">enabled · rung 2</option>
+          <option value="enabled">enabled</option>
           <option value="disabled">disabled</option>
+        </select>
+      </label>
+      <label>Autonomy rung
+        <select id="rung">
+          <option value="1">1 · draft for a human</option>
+          <option value="2" selected>2 · propose then confirm</option>
+          <option value="3">3 · execute and notify</option>
+          <option value="4">4 · autonomous, audited</option>
         </select>
       </label>
       <label>Auth level
@@ -44,6 +52,11 @@
         <input id="plan" value="PPO-High" />
       </label>
       <label class="check"><input type="checkbox" id="frozen" /> Open-enrollment freeze</label>
+      <label class="check"><input type="checkbox" id="can_view" checked /> VIEW granted</label>
+      <label class="check"><input type="checkbox" id="can_change" checked /> CHANGE granted</label>
+      <label>Evidence age (days)
+        <input id="evidence_age" type="number" min="0" max="400" value="2" />
+      </label>
       <button type="button" id="reset" class="ghost">Reset conversation</button>
     </section>
 

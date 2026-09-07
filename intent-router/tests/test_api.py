@@ -57,12 +57,111 @@ def test_stepped_up_auth_yields_a_nonce_bound_proposal(client):
     assert proposal["params"] == {"rate_pct": 8.0}
     assert proposal["confirmation_nonce"]
 
-    confirmed = client.post(
-        "/api/confirm",
-        json={"proposal_id": proposal["proposal_id"], "confirmation_nonce": proposal["confirmation_nonce"]},
-    )
+    confirmed = _confirm(client, proposal)
     assert confirmed.status_code == 200
-    assert confirmed.json()["status"] == "accepted"
+    payload = confirmed.json()
+    assert payload["status"] == "executed"
+    assert payload["receipt"]["command_key"] == proposal["proposal_id"]
+    assert payload["receipt"]["duplicate"] is False
+
+
+def test_a_repeated_confirmation_collapses_onto_the_first_receipt(client):
+    proposal = post(client, "Increase my 401(k) to 8%", auth_level="stepped_up")["proposal"]
+    first = _confirm(client, proposal).json()
+    second = _confirm(client, proposal).json()
+
+    assert second["status"] == "duplicate"
+    assert second["receipt"]["duplicate"] is True
+    assert second["receipt"]["executed_at"] == first["receipt"]["executed_at"]
+
+
+def test_a_confirmation_with_the_wrong_nonce_is_refused(client):
+    proposal = post(client, "Increase my 401(k) to 8%", auth_level="stepped_up")["proposal"]
+    response = _confirm(client, {**proposal, "confirmation_nonce": "not-the-nonce"})
+    assert response.status_code == 409
+
+
+def test_a_superseded_proposal_can_no_longer_be_confirmed(client):
+    stale = post(client, "Increase my 401(k) to 8%", auth_level="stepped_up")["proposal"]
+    post(client, "Increase my 401(k) to 9%", auth_level="stepped_up")
+
+    response = _confirm(client, stale)
+    assert response.status_code == 409
+    assert "expired" in response.json()["detail"] or "replaced" in response.json()["detail"]
+
+
+def test_saying_yes_confirm_it_resumes_the_pending_proposal(client):
+    first = post(client, "Increase my 401(k) to 8%", auth_level="stepped_up")
+    body = post(
+        client,
+        "yes, confirm it",
+        auth_level="stepped_up",
+        conversation_state=first["conversation_state"],
+    )
+
+    assert body["decision"]["graph"] == "G-CONTRIB-COMMIT"
+    assert body["receipt"]["command_key"] == first["proposal"]["proposal_id"]
+    assert "pending_proposal" not in body["conversation_state"]
+
+
+def test_confirming_with_nothing_pending_falls_back(client):
+    body = post(client, "yes, confirm it", auth_level="stepped_up")
+    assert body["decision"]["graph"] == "G-FALLBACK"
+    assert body["receipt"] is None
+
+
+def test_rung_one_drafts_for_a_human_instead_of_proposing(client):
+    body = post(client, "Increase my 401(k) to 8%", auth_level="stepped_up", rung=1)
+    assert body["decision"]["graph"] == "G-CONTRIB-DRAFT"
+    assert body["proposal"] is None
+    assert "ExecuteContributionChange" not in body["tool_calls"]
+
+
+def test_rung_three_executes_and_notifies_without_a_second_turn(client):
+    body = post(client, "Increase my 401(k) to 8%", auth_level="stepped_up", rung=3)
+    assert body["decision"]["graph"] == "G-CONTRIB-AUTO"
+    assert body["tool_calls"] == [
+        "RevalidateProposal",
+        "ExecuteContributionChange",
+        "VerifyContributionChange",
+        "NotifyParticipant",
+    ]
+    assert body["receipt"]["params"] == {"rate_pct": 8.0}
+
+
+def test_rung_four_acts_without_step_up(client):
+    body = post(client, "Increase my 401(k) to 8%", rung=4)
+    assert body["decision"]["graph"] == "G-CONTRIB-AUTO"
+    assert body["decision"]["note"] == "autonomous-audited"
+
+
+def test_a_participant_without_the_change_grant_never_reaches_a_write(client):
+    body = post(client, "Increase my 401(k) to 8%", auth_level="stepped_up", can_change=False)
+    assert body["decision"]["graph"] == "G-EXPLAIN-ROUTE"
+    assert body["decision"]["capability"] == "unentitled"
+    assert body["proposal"] is None
+
+
+def test_a_participant_without_the_view_grant_fetches_no_data(client):
+    body = post(client, "How much of my deductible have I met?", can_view=False)
+    assert body["decision"]["graph"] == "G-EXPLAIN-ROUTE"
+    assert "GetAccumulators" not in body["tool_calls"]
+
+
+def test_stale_evidence_abstains_instead_of_quoting_a_number(client):
+    body = post(client, "How much of my deductible have I met?", evidence_age_days=90)
+    assert body["decision"]["evidence_policy"] == {"max_age_days": 7, "abstain_if_stale": True}
+    assert "$840" not in body["assistant"]
+
+
+def _confirm(client: TestClient, proposal):
+    return client.post(
+        "/api/confirm",
+        json={
+            "proposal_id": proposal["proposal_id"],
+            "confirmation_nonce": proposal["confirmation_nonce"],
+        },
+    )
 
 
 def test_standard_auth_asks_to_step_up_instead_of_proposing(client):
@@ -93,6 +192,7 @@ def test_table_endpoint_exposes_guard_row_ordering(client):
     rows = client.get("/api/table").json()["rows"]
     assert rows[0]["band"] == "LOW"
     assert rows[1]["capability"] == "FROZEN"
+    assert rows[2]["capability"] == "unentitled"
 
 
 def test_index_serves_the_assistant_page(client):

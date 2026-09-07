@@ -24,7 +24,7 @@ from .models import (
 )
 from .rules import match_rules
 from .slots import resolve_slots
-from .table import DecisionTable, capability_state, load_table
+from .table import DecisionTable, capability_rung, capability_state, load_table
 from .trace import TraceSink, build_trace
 
 CONFIG_ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +34,7 @@ DEFAULT_REGISTRY = CONFIG_ROOT / "graphs" / "registry.yaml"
 
 CLARIFY_GRAPH = "G-CLARIFY"
 FALLBACK_GRAPH = "G-FALLBACK"
+PENDING_PROPOSAL = "pending_proposal"
 
 
 class IntentRouter:
@@ -79,8 +80,13 @@ class IntentRouter:
                 utterance_for_classification, context, ladder, reclassified=pending is not None
             )
         intent = self.catalog.get(interpretation.intent)
-        band = self._band(interpretation)
+        band = self._band(interpretation, intent)
         ladder.append(f"band={band}")
+
+        if intent.requires_pending_proposal and PENDING_PROPOSAL not in context.conversation_state:
+            # A confirmation with nothing to confirm is not a transaction, it is noise.
+            ladder.append("no_pending_proposal")
+            band = "LOW"
 
         slots = resolve_slots(intent, interpretation.slots, context)
         slot_error = slots.error
@@ -94,7 +100,9 @@ class IntentRouter:
             ladder.append("fall_down")
             band = "LOW"
 
-        capability = capability_state(intent.id, intent.risk_tier, context)
+        capability = capability_state(intent, context)
+        ladder.append(f"entitlement={intent.permission}")
+        rung = capability_rung(capability)
         try:
             row = self.table.match(
                 intent=intent.id,
@@ -107,7 +115,11 @@ class IntentRouter:
             raise RoutingError(str(exc)) from None
 
         self.registry.assert_manifest_legal(
-            row.graph, intent.risk_tier, capability_enabled=capability.startswith("enabled")
+            row.graph,
+            intent.risk_tier,
+            capability_enabled=capability.startswith("enabled"),
+            rung=rung,
+            confirmed=PENDING_PROPOSAL in context.conversation_state,
         )
 
         clarifying_question = None
@@ -161,6 +173,12 @@ class IntentRouter:
             no_data_reads=row.no_data_reads,
             note=row.note,
             conversation_state=conversation_state,
+            capability=capability,
+            rung=rung,
+            permission=intent.permission,
+            posture=self.registry.get(row.graph).posture,
+            band_edges="catalog" if intent.bands else "table",
+            evidence_policy=dict(row.evidence) if row.evidence else None,
         )
         self._trace(decision, context)
         return decision
@@ -194,10 +212,11 @@ class IntentRouter:
                 return Interpretation(intent=candidate, confidence=1.0, source="rule")
         return None
 
-    def _band(self, interpretation: Interpretation) -> Band:
+    def _band(self, interpretation: Interpretation, intent: IntentSpec) -> Band:
+        """Band edges are measured per intent: a transaction wants a higher bar than a read."""
         if interpretation.source == "rule":
             return "RULE"
-        return self.table.band_for(interpretation.confidence)
+        return self.table.band_for(interpretation.confidence, intent.bands)
 
     def _clarifying_question(
         self, intent: IntentSpec, interpretation: Interpretation, slot_error: Optional[str]
@@ -240,8 +259,12 @@ class IntentRouter:
                 source=decision.source,
                 confidence=decision.confidence,
                 band=decision.band,
+                band_edges=decision.band_edges,
                 fired_row=decision.fired_row,
                 graph=decision.graph,
+                posture=decision.posture,
+                capability=decision.capability,
+                rung=decision.rung,
                 ladder_path=decision.ladder_path,
                 versions=dict(decision.versions),
                 cache_key=decision.cache_key,

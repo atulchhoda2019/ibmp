@@ -1,8 +1,14 @@
 version: catalog-v1
 
+# `permission` is the entitlement the gateway must have granted before any data is fetched.
+# VIEW and CHANGE are separate permissions: seeing a balance never implies moving money.
+# `bands` overrides the table's global band edges for one intent, because precision curves
+# are per-intent: a transaction wants a higher bar than a read for the same 0.88.
+
 intents:
   - id: plan.deductible.status
     risk_tier: READ
+    permission: VIEW
     personal: true
     label: Check how much of my deductible I have met
     slots:
@@ -10,6 +16,7 @@ intents:
 
   - id: plan.deductible.info
     risk_tier: READ
+    permission: VIEW
     personal: false
     label: Look up a plan's deductible
     scope: plan
@@ -18,27 +25,57 @@ intents:
 
   - id: plan.elections.view
     risk_tier: READ
+    permission: VIEW
     personal: true
     label: View my current elections
     slots: {}
 
   - id: ret.contribution.change
     risk_tier: TRANSACT
+    permission: CHANGE
     personal: true
     label: Change my 401(k) contribution amount
+    bands:
+      HIGH: [0.90, 1.0]
+      MEDIUM: [0.65, 0.90]
+      LOW: [0.0, 0.65]
     slots:
       rate_pct: {type: percent, min: 0, max: 100, required: true}
     rule_patterns:
       - "(increase|raise|change|set) my 401\\(?k\\)? (contribution )?to (?P<rate_pct>\\d+(\\.\\d+)?)\\s?%"
 
+  - id: ret.contribution.confirm
+    risk_tier: TRANSACT
+    permission: CHANGE
+    personal: true
+    label: Confirm the contribution change I proposed
+    requires_pending_proposal: true
+    # confirming is the same journey as changing, so it is bought and frozen as one capability
+    capability_key: ret.contribution.change
+    bands:
+      HIGH: [0.95, 1.0]
+      MEDIUM: [0.70, 0.95]
+      LOW: [0.0, 0.70]
+    slots: {}
+    rule_patterns:
+      # Stage 0 also catches resumptions: a confirmation is a state transition, never a mood.
+      - "^\\s*(yes[,!. ]*)?(please )?(go ahead and )?confirm( it| that| the change)?[.!]?\\s*$"
+      - "^\\s*yes[,!. ]+(do it|go ahead|submit it)[.!]?\\s*$"
+
   - id: life.event.divorce
     risk_tier: SENSITIVE
+    permission: VIEW
     personal: true
     label: Coverage questions about a divorce
+    bands:
+      HIGH: [0.90, 1.0]
+      MEDIUM: [0.60, 0.90]
+      LOW: [0.0, 0.60]
     slots: {}
 
   - id: __out_of_scope__
     risk_tier: READ
+    permission: VIEW
     personal: true
     label: Something else
     slots: {}

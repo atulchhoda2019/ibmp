@@ -7,8 +7,9 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List
 
 TRACE_FIELDS = (
-    "timestamp", "tenant", "intent", "source", "confidence", "band",
-    "fired_row", "graph", "ladder_path", "versions", "cache_key",
+    "timestamp", "tenant", "intent", "source", "confidence", "band", "band_edges",
+    "fired_row", "graph", "posture", "capability", "rung", "ladder_path", "versions",
+    "cache_key",
 )
 
 
@@ -36,7 +37,11 @@ def build_trace(
     confidence: float,
     band: str,
     fired_row: int,
+    band_edges: str,
     graph: str,
+    posture: str,
+    capability: str,
+    rung: int,
     ladder_path: tuple,
     versions: Dict[str, str],
     cache_key: str | None,
@@ -48,8 +53,12 @@ def build_trace(
         "source": source,
         "confidence": confidence,
         "band": band,
+        "band_edges": band_edges,
         "fired_row": fired_row,
         "graph": graph,
+        "posture": posture,
+        "capability": capability,
+        "rung": rung,
         "ladder_path": list(ladder_path),
         "versions": dict(versions),
         "cache_key": cache_key,

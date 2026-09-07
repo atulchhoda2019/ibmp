@@ -70,6 +70,21 @@ main {
 }
 .options button:hover, .suggestions button:hover { border-color: var(--accent); color: var(--accent); }
 
+.receipt {
+  align-self: flex-start;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(102, 204, 255, 0.08);
+  font-size: 13px;
+  max-width: 76%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.receipt h3 { margin: 0 0 2px; font-size: 13px; color: var(--accent); }
+.receipt code { color: var(--muted); font-size: 12px; word-break: break-all; }
+
 .proposal {
   align-self: flex-start;
   border: 1px solid var(--warn);

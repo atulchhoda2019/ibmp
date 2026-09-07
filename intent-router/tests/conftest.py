@@ -22,6 +22,10 @@ REGISTRY_PATH = ROOT / "graphs" / "registry.yaml"
 
 T_ENABLED = {"ret.contribution.change": {"enabled": True, "rung": 2}}
 T_DISABLED = {"ret.contribution.change": {"enabled": False}}
+T_DRAFT_ONLY = {"ret.contribution.change": {"enabled": True, "rung": 1}}
+T_EXECUTE = {"ret.contribution.change": {"enabled": True, "rung": 3}}
+T_AUTONOMOUS = {"ret.contribution.change": {"enabled": True, "rung": 4}}
+FULL_ENTITLEMENTS = {"VIEW": True, "CHANGE": True}
 
 
 @pytest.fixture
@@ -64,6 +68,7 @@ def context(
     ui_context=None,
     conversation_state=None,
     participant_ref="participant-1",
+    entitlements=None,
 ) -> RequestContext:
     return RequestContext(
         tenant_id="tenant-acme",
@@ -71,6 +76,7 @@ def context(
         auth_level=auth,
         tenant_capabilities=dict(T_ENABLED if capabilities is None else capabilities),
         tenant_frozen=frozen,
+        entitlements=dict(FULL_ENTITLEMENTS if entitlements is None else entitlements),
         ui_context=dict(ui_context or {}),
         conversation_state=dict(conversation_state or {}),
     )

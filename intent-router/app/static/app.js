@@ -11,6 +11,7 @@ const SUGGESTIONS = [
   "What is the PPO-High deductible?",
   "I'm going through a divorce, what happens to my coverage?",
   "increase my 401(k) to 250%",
+  "yes, confirm it",
   "my money stuff is wrong",
 ];
 
@@ -19,8 +20,12 @@ let conversationState = {};
 function requestContext() {
   return {
     capability: document.getElementById("capability").value,
+    rung: Number(document.getElementById("rung").value),
     auth_level: document.getElementById("auth").value,
     tenant_frozen: document.getElementById("frozen").checked,
+    can_view: document.getElementById("can_view").checked,
+    can_change: document.getElementById("can_change").checked,
+    evidence_age_days: Number(document.getElementById("evidence_age").value),
     viewing_plan: document.getElementById("plan").value,
     conversation_state: conversationState,
   };
@@ -70,12 +75,34 @@ function renderProposal(proposal) {
       body: JSON.stringify({
         proposal_id: proposal.proposal_id,
         confirmation_nonce: proposal.confirmation_nonce,
+        rung: Number(document.getElementById("rung").value),
+        conversation_state: conversationState,
       }),
     });
     const body = await response.json();
-    bubble("system", body.detail);
+    if (!response.ok) {
+      bubble("system", body.detail);
+      return;
+    }
+    if (body.conversation_state) conversationState = body.conversation_state;
+    bubble("assistant", body.assistant || "That change was already applied.");
+    renderReceipt(body.receipt);
   });
   card.appendChild(confirm);
+  transcript.appendChild(card);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function renderReceipt(receipt) {
+  if (!receipt) return;
+  const card = document.createElement("div");
+  card.className = "receipt";
+  card.innerHTML = `
+    <h3>Receipt${receipt.duplicate ? " \u00b7 duplicate collapsed" : ""}</h3>
+    <div>${receipt.action} \u00b7 ${JSON.stringify(receipt.params)} \u00b7 effective ${receipt.effective_date}</div>
+    <div>${receipt.reversal}</div>
+    <code>command key ${receipt.command_key}</code>
+  `;
   transcript.appendChild(card);
   transcript.scrollTop = transcript.scrollHeight;
 }
@@ -84,7 +111,8 @@ function renderDecision(decision, toolCalls) {
   decisionPanel.classList.remove("empty");
   const entries = [
     ["intent", decision.intent],
-    ["band", `${decision.band} (${decision.source}, ${decision.confidence.toFixed(2)})`],
+    ["band", `${decision.band} (${decision.source}, ${decision.confidence.toFixed(2)}, ${decision.band_edges} edges)`],
+    ["posture", `${decision.posture} \u00b7 ${decision.permission} \u00b7 ${decision.capability}`],
     ["fired row", decision.fired_row],
     ["entry node", decision.entry_node || "—"],
     ["budgets", `${decision.budgets.steps} steps · ${decision.budgets.tokens} tokens`],
@@ -93,6 +121,7 @@ function renderDecision(decision, toolCalls) {
     ["cache key", decision.cache_key ? `${decision.cache_key.slice(0, 16)}…` : "not cacheable"],
     ["versions", `${decision.versions.catalog} · ${decision.versions.table}`],
   ];
+  if (decision.evidence_policy) entries.push(["evidence", JSON.stringify(decision.evidence_policy)]);
   if (decision.note) entries.push(["note", decision.note]);
   if (decision.log_for_catalog_review) entries.push(["flagged", "catalog review"]);
 
@@ -123,6 +152,7 @@ async function send(utterance) {
   bubble("assistant", body.assistant);
   renderOptions(body.options);
   renderProposal(body.proposal);
+  renderReceipt(body.receipt);
   renderDecision(body.decision, body.tool_calls);
 }
 

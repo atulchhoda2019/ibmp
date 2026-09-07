@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
-from app.responder import respond  # noqa: E402
+from app.corridor import ConfirmationError, ConfirmationStore  # noqa: E402
+from app.responder import execute_pending, respond  # noqa: E402
 from classifier import StubClassifier  # noqa: E402
 from graphs.registry import load_registry  # noqa: E402
 from router.catalog import load_catalog  # noqa: E402
@@ -39,18 +40,29 @@ ROUTER = IntentRouter(
     trace_sink=TRACE,
 )
 
-CAPABILITIES = {
-    "enabled": {"ret.contribution.change": {"enabled": True, "rung": 2}},
-    "disabled": {"ret.contribution.change": {"enabled": False}},
-}
+TENANT_ID = "tenant-acme"
+#: the confirmation corridor lives server-side: the client never holds a nonce it can replay
+STORE = ConfirmationStore()
 
 app = FastAPI(title="Intent routing demo assistant")
 
 
+def _capabilities(capability: str, rung: int) -> Dict[str, Any]:
+    if capability == "disabled":
+        return {"ret.contribution.change": {"enabled": False}}
+    return {"ret.contribution.change": {"enabled": True, "rung": rung}}
+
+
 class ContextPayload(BaseModel):
     capability: Literal["enabled", "disabled"] = "enabled"
+    #: autonomy rung the tenant bought: 1 draft, 2 propose+confirm, 3 execute+notify, 4 autonomous
+    rung: int = Field(default=2, ge=1, le=4)
     auth_level: Literal["standard", "stepped_up"] = "standard"
     tenant_frozen: bool = False
+    #: verified grants; the UI toggles them, a real gateway reads them from the identity plane
+    can_view: bool = True
+    can_change: bool = True
+    evidence_age_days: int = Field(default=2, ge=0, le=400)
     viewing_plan: str = "PPO-High"
     participant_ref: str = "participant-1"
     conversation_state: Dict[str, Any] = Field(default_factory=dict)
@@ -64,12 +76,16 @@ class ChatRequest(BaseModel):
 class ConfirmRequest(BaseModel):
     proposal_id: str
     confirmation_nonce: str
+    participant_ref: str = "participant-1"
+    rung: int = Field(default=2, ge=1, le=4)
+    conversation_state: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatResponse(BaseModel):
     assistant: str
     options: List[Dict[str, str]]
     proposal: Optional[Dict[str, Any]]
+    receipt: Optional[Dict[str, Any]]
     tool_calls: List[str]
     decision: Dict[str, Any]
     conversation_state: Dict[str, Any]
@@ -78,11 +94,12 @@ class ChatResponse(BaseModel):
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     context = RequestContext(
-        tenant_id="tenant-acme",
+        tenant_id=TENANT_ID,
         participant_ref=request.context.participant_ref,
         auth_level=request.context.auth_level,
-        tenant_capabilities=CAPABILITIES[request.context.capability],
+        tenant_capabilities=_capabilities(request.context.capability, request.context.rung),
         tenant_frozen=request.context.tenant_frozen,
+        entitlements={"VIEW": request.context.can_view, "CHANGE": request.context.can_change},
         ui_context={"viewing_plan": request.context.viewing_plan},
         conversation_state=request.context.conversation_state,
     )
@@ -91,11 +108,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
     except RoutingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
-    turn = await respond(decision, REGISTRY)
+    turn = await respond(
+        decision, REGISTRY, context, STORE, evidence_age_days=request.context.evidence_age_days
+    )
     return ChatResponse(
         assistant=turn.text,
         options=turn.options,
         proposal=turn.proposal,
+        receipt=turn.receipt,
         tool_calls=turn.tool_calls,
         decision={
             "graph": decision.graph,
@@ -113,19 +133,58 @@ async def chat(request: ChatRequest) -> ChatResponse:
             "versions": dict(decision.versions),
             "note": decision.note,
             "log_for_catalog_review": decision.log_for_catalog_review,
+            "capability": decision.capability,
+            "rung": decision.rung,
+            "permission": decision.permission,
+            "posture": decision.posture,
+            "band_edges": decision.band_edges,
+            "evidence_policy": decision.evidence_policy,
         },
-        conversation_state=dict(decision.conversation_state),
+        conversation_state=dict(turn.conversation_state),
     )
 
 
 @app.post("/api/confirm")
-async def confirm(request: ConfirmRequest) -> Dict[str, str]:
-    """Stubbed downstream: a proposal only moves when its own nonce comes back."""
+async def confirm(request: ConfirmRequest) -> Dict[str, Any]:
+    """The corridor: only a live, nonce-bound proposal executes, and a retry replays its receipt."""
     if not request.confirmation_nonce:
         raise HTTPException(status_code=400, detail="confirmation nonce required")
+    replay = STORE.replay(request.proposal_id)
+    if replay is not None:
+        return {"status": "duplicate", "receipt": _receipt_payload(replay)}
+    try:
+        pending = STORE.claim(
+            request.proposal_id,
+            request.confirmation_nonce,
+            tenant_id=TENANT_ID,
+            participant_ref=request.participant_ref,
+        )
+    except ConfirmationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    graph = REGISTRY.instantiate("G-CONTRIB-COMMIT")
+    REGISTRY.assert_manifest_legal(
+        "G-CONTRIB-COMMIT", "TRANSACT", capability_enabled=True, rung=request.rung, confirmed=True
+    )
+    turn = await execute_pending(pending, graph, STORE, dict(request.conversation_state))
     return {
-        "status": "accepted",
-        "detail": f"Proposal {request.proposal_id} confirmed. Execution is out of scope in this demo.",
+        "status": "executed",
+        "assistant": turn.text,
+        "receipt": turn.receipt,
+        "tool_calls": turn.tool_calls,
+        "conversation_state": turn.conversation_state,
+    }
+
+
+def _receipt_payload(receipt) -> Dict[str, Any]:
+    return {
+        "command_key": receipt.command_key,
+        "action": receipt.action,
+        "params": dict(receipt.params),
+        "effective_date": receipt.effective_date,
+        "executed_at": receipt.executed_at,
+        "reversal": receipt.reversal,
+        "duplicate": receipt.duplicate,
     }
 
 
@@ -144,6 +203,7 @@ async def table() -> Dict[str, Any]:
                 "graph": row.graph,
                 "budgets": dict(row.budgets),
                 "note": row.note,
+                "evidence": dict(row.evidence) if row.evidence else None,
             }
             for row in TABLE.rows
         ],
