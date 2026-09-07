@@ -1,0 +1,7 @@
+graphs:
+  G-DEDUCTIBLE:      {manifest: [GetCoverage, GetAccumulators, RetrieveEvidence], writes: []}
+  G-CONTRIB-CHANGE:  {manifest: [GetElections, GetContributionLimits, Calc402g, ProposeContributionChange], writes: [ProposeContributionChange]}
+  G-EXPLAIN-ROUTE:   {manifest: [RetrieveEvidence, CsrHandoff], writes: []}
+  G-CLARIFY:         {manifest: [], writes: []}
+  G-LIFE-EVENT-RO:   {manifest: [GetCoverage, RetrieveEvidence, CsrHandoff], writes: []}
+  G-FALLBACK:        {manifest: [CsrHandoff], writes: []}

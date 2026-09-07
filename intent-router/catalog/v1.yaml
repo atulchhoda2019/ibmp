@@ -1,0 +1,44 @@
+version: catalog-v1
+
+intents:
+  - id: plan.deductible.status
+    risk_tier: READ
+    personal: true
+    label: Check how much of my deductible I have met
+    slots:
+      plan_id: {type: string, source: [utterance, ui_context], required: false}
+
+  - id: plan.deductible.info
+    risk_tier: READ
+    personal: false
+    label: Look up a plan's deductible
+    scope: plan
+    slots:
+      plan_id: {type: string, source: [utterance, ui_context], required: true}
+
+  - id: plan.elections.view
+    risk_tier: READ
+    personal: true
+    label: View my current elections
+    slots: {}
+
+  - id: ret.contribution.change
+    risk_tier: TRANSACT
+    personal: true
+    label: Change my 401(k) contribution amount
+    slots:
+      rate_pct: {type: percent, min: 0, max: 100, required: true}
+    rule_patterns:
+      - "(increase|raise|change|set) my 401\\(?k\\)? (contribution )?to (?P<rate_pct>\\d+(\\.\\d+)?)\\s?%"
+
+  - id: life.event.divorce
+    risk_tier: SENSITIVE
+    personal: true
+    label: Coverage questions about a divorce
+    slots: {}
+
+  - id: __out_of_scope__
+    risk_tier: READ
+    personal: true
+    label: Something else
+    slots: {}

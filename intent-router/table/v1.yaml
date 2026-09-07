@@ -1,0 +1,32 @@
+version: table-v1
+catalog_version: catalog-v1
+
+bands:
+  HIGH: [0.85, 1.0]
+  MEDIUM: [0.55, 0.85]
+  LOW: [0.0, 0.55]
+
+rows:
+  # guards first: LOW and FROZEN outrank every normal row
+  - {intent: any, band: LOW, capability: any, risk: any, auth: any,
+     graph: G-FALLBACK, budgets: {steps: 2, tokens: 1000}, note: scripted-or-human, log_for_catalog_review: true}
+  - {intent: any, band: any, capability: FROZEN, risk: TRANSACT, auth: any,
+     graph: G-EXPLAIN-ROUTE, budgets: {steps: 4, tokens: 2000}, note: writes-disabled-during-freeze}
+
+  # normal rows
+  - {intent: plan.deductible.status, band: HIGH, capability: any, risk: READ, auth: any,
+     graph: G-DEDUCTIBLE, budgets: {steps: 6, tokens: 4000}}
+  - {intent: plan.deductible.info, band: HIGH, capability: any, risk: READ, auth: any,
+     graph: G-DEDUCTIBLE, budgets: {steps: 6, tokens: 4000}}
+  - {intent: ret.contribution.change, band: RULE_OR_HIGH, capability: "enabled&rung>=2", risk: TRANSACT, auth: standard,
+     graph: G-CONTRIB-CHANGE, budgets: {steps: 12, tokens: 8000}, entry_node: step_up_auth}
+  - {intent: ret.contribution.change, band: RULE_OR_HIGH, capability: "enabled&rung>=2", risk: TRANSACT, auth: stepped_up,
+     graph: G-CONTRIB-CHANGE, budgets: {steps: 12, tokens: 8000}, entry_node: build_proposal}
+  - {intent: ret.contribution.change, band: any, capability: disabled, risk: TRANSACT, auth: any,
+     graph: G-EXPLAIN-ROUTE, budgets: {steps: 4, tokens: 2000}}
+  - {intent: ret.contribution.change, band: MEDIUM, capability: any, risk: TRANSACT, auth: any,
+     graph: G-CLARIFY, budgets: {steps: 1, tokens: 500}, note: one-named-options-question, no_data_reads: true}
+  - {intent: life.event.divorce, band: HIGH, capability: any, risk: SENSITIVE, auth: any,
+     graph: G-LIFE-EVENT-RO, budgets: {steps: 6, tokens: 4000}, note: empathetic-readonly-csr-offer}
+  - {intent: __out_of_scope__, band: any, capability: any, risk: READ, auth: any,
+     graph: G-FALLBACK, budgets: {steps: 2, tokens: 1000}, note: scripted-or-human, log_for_catalog_review: true}
