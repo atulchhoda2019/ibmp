@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Benefits assistant · intent routing demo</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+<header>
+  <h1>Benefits assistant</h1>
+  <p class="sub">Every turn is routed by the decision table. The panel on the right shows why.</p>
+</header>
+
+<main>
+  <section class="chat" aria-label="Conversation">
+    <div id="transcript" class="transcript" aria-live="polite"></div>
+
+    <div id="suggestions" class="suggestions"></div>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <input id="utterance" name="utterance" placeholder="Ask about your benefits…" aria-label="Message" />
+      <button type="submit">Send</button>
+    </form>
+  </section>
+
+  <aside class="side">
+    <section class="card">
+      <h2>Request context</h2>
+      <p class="hint">Identity and entitlements come from here, never from the message.</p>
+      <label>Capability
+        <select id="capability">
+          <option value="enabled">enabled</option>
+          <option value="disabled">disabled</option>
+        </select>
+      </label>
+      <label>Autonomy rung
+        <select id="rung">
+          <option value="1">1 · draft for a human</option>
+          <option value="2" selected>2 · propose then confirm</option>
+          <option value="3">3 · execute and notify</option>
+          <option value="4">4 · autonomous, audited</option>
+        </select>
+      </label>
+      <label>Auth level
+        <select id="auth">
+          <option value="standard">standard</option>
+          <option value="stepped_up">stepped up</option>
+        </select>
+      </label>
+      <label>Viewing plan
+        <input id="plan" value="PPO-High" />
+      </label>
+      <label class="check"><input type="checkbox" id="frozen" /> Open-enrollment freeze</label>
+      <label class="check"><input type="checkbox" id="can_view" checked /> VIEW granted</label>
+      <label class="check"><input type="checkbox" id="can_change" checked /> CHANGE granted</label>
+      <label>Evidence age (days)
+        <input id="evidence_age" type="number" min="0" max="400" value="2" />
+      </label>
+      <button type="button" id="reset" class="ghost">Reset conversation</button>
+    </section>
+
+    <section class="card">
+      <h2>Routing decision</h2>
+      <div id="decision" class="decision empty">Send a message to see the fired row.</div>
+    </section>
+  </aside>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

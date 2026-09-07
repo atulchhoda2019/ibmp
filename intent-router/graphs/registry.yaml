@@ -1,0 +1,65 @@
+# Pre-approved graphs. `nodes` are the journey node names from the board; a row may only
+# enter a graph at one of its declared nodes.
+#
+# `executes` is the ONLY way an Execute* tool becomes legal, and a graph that declares one
+# must also declare its governance: the minimum autonomy rung, that the action is reversible,
+# and whether a live nonce-bound confirmation is required before the execute node runs.
+
+graphs:
+  G-DEDUCTIBLE:
+    nodes: [determine_context, fetch_facts, assemble_context, respond, readonly_summary]
+    manifest: [GetCoverage, GetAccumulators, RetrieveEvidence]
+    writes: []
+
+  G-ELECTIONS-RO:
+    nodes: [determine_context, fetch_facts, respond]
+    manifest: [GetElections, RetrieveEvidence]
+    writes: []
+
+  G-CONTRIB-DRAFT:
+    nodes: [draft_for_human]
+    manifest: [GetElections, GetContributionLimits, Calc402g, DraftForHuman]
+    writes: []
+    posture: draft
+
+  G-CONTRIB-CHANGE:
+    nodes: [step_up_auth, extract_action, policy_check, create_preview, wait_confirmation]
+    manifest: [GetElections, GetContributionLimits, Calc402g, ProposeContributionChange]
+    writes: [ProposeContributionChange]
+    posture: propose
+
+  G-CONTRIB-COMMIT:
+    nodes: [revalidate, execute, verify, receipt]
+    manifest: [RevalidateProposal, ExecuteContributionChange, VerifyContributionChange, EmitReceipt]
+    writes: [ExecuteContributionChange]
+    executes: [ExecuteContributionChange]
+    posture: execute
+    governance: {min_rung: 2, reversible: true, requires_confirmation: true}
+
+  G-CONTRIB-AUTO:
+    nodes: [revalidate, execute, verify, notify]
+    manifest: [RevalidateProposal, ExecuteContributionChange, VerifyContributionChange, NotifyParticipant]
+    writes: [ExecuteContributionChange]
+    executes: [ExecuteContributionChange]
+    posture: execute
+    governance: {min_rung: 3, reversible: true, requires_confirmation: false}
+
+  G-EXPLAIN-ROUTE:
+    nodes: [respond, offer_csr]
+    manifest: [RetrieveEvidence, CsrHandoff]
+    writes: []
+
+  G-CLARIFY:
+    nodes: [ask]
+    manifest: []
+    writes: []
+
+  G-LIFE-EVENT-RO:
+    nodes: [determine_context, fetch_facts, respond, offer_csr]
+    manifest: [GetCoverage, RetrieveEvidence, CsrHandoff]
+    writes: []
+
+  G-FALLBACK:
+    nodes: [respond, offer_csr]
+    manifest: [CsrHandoff]
+    writes: []
