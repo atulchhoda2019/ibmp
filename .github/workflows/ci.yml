@@ -21,3 +21,19 @@ jobs:
         run: python scripts/validate_config.py
       - name: Tests
         run: python -m pytest -q
+
+  agent-flow:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: benefits-agent-flow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Validate served config
+        run: python scripts/validate_config.py
+      - name: Tests
+        run: python -m pytest -q

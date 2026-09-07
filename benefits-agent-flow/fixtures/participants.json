@@ -1,0 +1,93 @@
+{
+  "P-1001": {
+    "tenant_id": "T-ACME",
+    "persona": "mid-career, clean path",
+    "email": "casey.rivera@example.com",
+    "plan_id": "PL-401K-ACME",
+    "medical_plan_id": null,
+    "eligibility_date": "2019-04-01",
+    "elections": {"401k_rate": "0.06", "annual_compensation": "180000"},
+    "balances": {"401k": "412300.00"},
+    "accumulators": {},
+    "ytd_deferral": "5400.00",
+    "beneficiaries": ["primary: spouse 100%"]
+  },
+  "P-1002": {
+    "tenant_id": "T-ACME",
+    "persona": "high earner, near the annual limit",
+    "email": "jordan.pierce@example.com",
+    "plan_id": "PL-401K-ACME",
+    "medical_plan_id": null,
+    "eligibility_date": "2011-01-01",
+    "elections": {"401k_rate": "0.10", "annual_compensation": "460000"},
+    "balances": {"401k": "1284000.00"},
+    "accumulators": {},
+    "ytd_deferral": "22800.00",
+    "beneficiaries": ["primary: trust 100%"]
+  },
+  "P-1003": {
+    "tenant_id": "T-ACME",
+    "persona": "new hire inside the waiting period",
+    "email": "sam.olabode@example.com",
+    "plan_id": "PL-401K-ACME",
+    "medical_plan_id": null,
+    "eligibility_date": "2027-01-01",
+    "elections": {},
+    "balances": {},
+    "accumulators": {},
+    "ytd_deferral": "0.00",
+    "beneficiaries": []
+  },
+  "P-1004": {
+    "tenant_id": "T-ACME",
+    "persona": "PT cost asker on the medical PPO",
+    "email": "robin.chen@example.com",
+    "plan_id": "PL-401K-ACME",
+    "medical_plan_id": "PL-PPO-ACME",
+    "eligibility_date": "2020-07-01",
+    "elections": {"401k_rate": "0.04", "annual_compensation": "96000"},
+    "balances": {"401k": "88100.00"},
+    "accumulators": {"deductible_total": "2000.00", "deductible_met": "800.00", "coinsurance_rate": "0.20"},
+    "ytd_deferral": "2400.00",
+    "beneficiaries": ["primary: parent 100%"]
+  },
+  "P-2001": {
+    "tenant_id": "T-ZEN",
+    "persona": "draft-only tenant: the sponsor submits the change itself",
+    "email": "alex.moreau@example.com",
+    "plan_id": "PL-401K-ZEN",
+    "medical_plan_id": null,
+    "eligibility_date": "2018-03-01",
+    "elections": {"401k_rate": "0.05", "annual_compensation": "150000"},
+    "balances": {"401k": "233900.00"},
+    "accumulators": {},
+    "ytd_deferral": "3750.00",
+    "beneficiaries": ["primary: sibling 100%"]
+  },
+  "P-3001": {
+    "tenant_id": "T-NOVA",
+    "persona": "execute-and-notify tenant",
+    "email": "priya.raman@example.com",
+    "plan_id": "PL-401K-NOVA",
+    "medical_plan_id": null,
+    "eligibility_date": "2016-09-01",
+    "elections": {"401k_rate": "0.06", "annual_compensation": "140000"},
+    "balances": {"401k": "301400.00"},
+    "accumulators": {},
+    "ytd_deferral": "4200.00",
+    "beneficiaries": ["primary: spouse 100%"]
+  },
+  "P-4001": {
+    "tenant_id": "T-LOCK",
+    "persona": "view-only tenant: no write capability at all",
+    "email": "dana.whitfield@example.com",
+    "plan_id": "PL-401K-LOCK",
+    "medical_plan_id": null,
+    "eligibility_date": "2015-02-01",
+    "elections": {"401k_rate": "0.07", "annual_compensation": "120000"},
+    "balances": {"401k": "198000.00"},
+    "accumulators": {},
+    "ytd_deferral": "4900.00",
+    "beneficiaries": ["primary: spouse 100%"]
+  }
+}

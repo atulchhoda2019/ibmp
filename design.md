@@ -18,8 +18,9 @@ These are enforced by structure, and the test suite proves each one.
 - I1 · The model never supplies an intent, a decision, or a fact. The classifier selects
   an intent from a closed catalog; a versioned decision table selects the graph and
   budgets; facts come only from typed mock tools.
-- I2 · No `Execute*` tool exists in any conversational graph. The only write-shaped tool
-  is `propose_contribution_change`, which returns a typed proposal object.
+- I2 · No `Execute*` tool exists in any *advisory* graph; an advisory row carries
+  `rung_max: 0` and its only write-shaped tool is `propose_contribution_change`, which
+  returns a typed proposal object. Execution lives solely in the transaction corridor.
 - I3 · A write reaches the (mock) system of record only through the corridor: proposal,
   deterministic validation, preview, nonce-bound confirmation, idempotent command,
   read-after-write verification, receipt.
@@ -395,8 +396,9 @@ outcome was unknown. Only then writes `receipt` into state.
 
 Rung enforcement: `gate_plan` compares the table row's rung ceiling with the tenant
 bundle (`bundles.yaml`). A tenant at rung 1 for `contribution_change` gets a drafted
-change form instead of the corridor; rung 2 is this full flow. No rung 3 or 4 path is
-implemented, deliberately.
+change form instead of the corridor; rung 2 is this full flow. Rungs 3 and 4 run the same
+corridor without the human pause (rung 3 also notifies) and keep every other gate:
+authorization, revalidation, idempotency, read-after-write verification and the receipt.
 
 ---
 
@@ -527,4 +529,4 @@ interrupt/resume pair.
 | test_corridor::test_idempotent    | S9       | I3, I5           |
 | test_corridor::test_rung_ceiling  | S10      | rung gates action|
 | test_resume::test_kill_resume     | S11      | I5               |
-| test_invariants::test_no_execute_tool | S12  | I2               |
+| test_invariants::test_i2_advisory_row | S12  | I2               |

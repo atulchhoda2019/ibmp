@@ -1,0 +1,123 @@
+[
+  {
+    "passage_id": "PSG-401K-LIMIT-2026",
+    "tenant_id": "T-ACME",
+    "plan_id": "PL-401K-ACME",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v3",
+    "effective_from": "2026-01-01",
+    "effective_to": "2026-12-31",
+    "text": "Elective deferrals to the ACME 401(k) are capped at the annual IRS limit of 23500.00 for the 2026 plan year.",
+    "keywords": ["limit", "deferral", "contribution", "401k", "rate"]
+  },
+  {
+    "passage_id": "PSG-401K-LIMIT-2025",
+    "tenant_id": "T-ACME",
+    "plan_id": "PL-401K-ACME",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v2",
+    "effective_from": "2025-01-01",
+    "effective_to": "2025-12-31",
+    "text": "Elective deferrals to the ACME 401(k) are capped at the annual IRS limit of 23000.00 for the 2025 plan year.",
+    "keywords": ["limit", "deferral", "contribution", "401k", "rate"]
+  },
+  {
+    "passage_id": "PSG-401K-MATCH",
+    "tenant_id": "T-ACME",
+    "plan_id": "PL-401K-ACME",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v4",
+    "effective_from": "2024-01-01",
+    "effective_to": null,
+    "text": "ACME matches 50 percent of elective deferrals on the first 6 percent of eligible compensation.",
+    "keywords": ["match", "projection", "contribution", "rate", "raise"]
+  },
+  {
+    "passage_id": "PSG-401K-WAIT",
+    "tenant_id": "T-ACME",
+    "plan_id": "PL-401K-ACME",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v2",
+    "effective_from": "2024-01-01",
+    "effective_to": null,
+    "text": "New hires become eligible to defer after a 90 day waiting period measured from the hire date.",
+    "keywords": ["eligible", "eligibility", "waiting", "enroll", "new hire"]
+  },
+  {
+    "passage_id": "PSG-PPO-PT",
+    "tenant_id": "T-ACME",
+    "plan_id": "PL-PPO-ACME",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v5",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "text": "Outpatient physical therapy is subject to the medical deductible and then 20 percent coinsurance.",
+    "keywords": ["physical therapy", "pt", "deductible", "coinsurance", "cost", "visit"]
+  },
+  {
+    "passage_id": "PSG-PPO-DEDUCT",
+    "tenant_id": "T-ACME",
+    "plan_id": "PL-PPO-ACME",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v5",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "text": "The individual medical deductible for the PPO is 2000.00 per plan year.",
+    "keywords": ["deductible", "out of pocket", "ppo", "plan", "compare"]
+  },
+  {
+    "passage_id": "PSG-QDRO",
+    "tenant_id": "T-ACME",
+    "plan_id": "PL-401K-ACME",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v1",
+    "effective_from": "2024-01-01",
+    "effective_to": null,
+    "text": "Account division following a divorce requires a qualified domestic relations order reviewed by the plan administrator.",
+    "keywords": ["divorce", "qdro", "separation", "beneficiary"],
+    "sensitive": true
+  },
+  {
+    "passage_id": "PSG-ZEN-CROSS-TENANT",
+    "tenant_id": "T-ZEN",
+    "plan_id": "PL-401K-ZEN",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v1",
+    "effective_from": "2024-01-01",
+    "effective_to": null,
+    "text": "ZEN caps elective deferrals at 60 percent of pay and matches 25 percent on the first 8 percent.",
+    "keywords": ["limit", "deferral", "contribution", "match", "rate", "physical therapy", "deductible"]
+  },
+  {
+    "passage_id": "PSG-NOVA-401K",
+    "tenant_id": "T-NOVA",
+    "plan_id": "PL-401K-NOVA",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v2",
+    "effective_from": "2024-01-01",
+    "effective_to": null,
+    "text": "NOVA caps elective deferrals at 50 percent of pay and matches dollar for dollar on the first 4 percent.",
+    "keywords": ["limit", "deferral", "contribution", "match", "rate", "401k", "eligible"]
+  },
+  {
+    "passage_id": "PSG-LOCK-401K",
+    "tenant_id": "T-LOCK",
+    "plan_id": "PL-401K-LOCK",
+    "population": "all",
+    "evidence_type": "plan_rules",
+    "version": "v1",
+    "effective_from": "2024-01-01",
+    "effective_to": null,
+    "text": "LOCK caps elective deferrals at 40 percent of pay and matches 50 percent on the first 3 percent.",
+    "keywords": ["limit", "deferral", "contribution", "match", "rate", "401k", "eligible"]
+  }
+]
