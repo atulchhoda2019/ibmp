@@ -89,6 +89,13 @@ def test_a_balance_answer_states_the_balance(client):
     assert "412300.00" in answer["text"]
 
 
+def test_absent_coverage_says_so_instead_of_reporting_no_values(client):
+    answer = client.post("/turn", json=body("how much of my deductible have i met")).json()
+    assert answer["kind"] == "answer"
+    assert "coverage on file" in answer["text"]
+    assert answer["limitation"].startswith("not applicable to this participant")
+
+
 def test_a_second_turn_does_not_inherit_the_first_turns_answer(client):
     conversation = f"C-{uuid.uuid4().hex[:8]}"
     first = client.post("/turn", json=body("what is my 401k balance right now", conversation)).json()

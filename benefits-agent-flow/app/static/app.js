@@ -9,14 +9,14 @@ const conversationField = document.getElementById("conversation");
 
 const PARTICIPANTS = {
   "T-ACME": [
-    ["P-1001", "P-1001 · 6% election"],
-    ["P-1002", "P-1002 · high earner, 10%"],
+    ["P-1001", "P-1001 · mid-career, clean path"],
+    ["P-1002", "P-1002 · high earner near the deferral cap"],
     ["P-1003", "P-1003 · new hire, not yet eligible"],
     ["P-1004", "P-1004 · PPO, physical therapy"],
   ],
-  "T-ZEN": [["P-2001", "P-2001 · 5% election"]],
-  "T-NOVA": [["P-3001", "P-3001 · 6% election"]],
-  "T-LOCK": [["P-4001", "P-4001 · 7% election"]],
+  "T-ZEN": [["P-2001", "P-2001 · draft-only tenant"]],
+  "T-NOVA": [["P-3001", "P-3001 · execute-and-notify tenant"]],
+  "T-LOCK": [["P-4001", "P-4001 · view-only tenant"]],
 };
 
 const SUGGESTIONS = [

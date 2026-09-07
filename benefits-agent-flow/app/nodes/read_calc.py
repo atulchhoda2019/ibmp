@@ -32,8 +32,12 @@ def requested(state: TurnState) -> dict[str, str]:
 
 def run(state: TurnState) -> dict:
     items = []
+    skipped = []
     for n, (etype, policy) in enumerate(sorted(requested(state).items()), start=1):
         result = CALCS[etype](state)
+        if result["payload"].get("applicable") is False:
+            skipped.append(etype)
+            continue
         items.append(EnvelopeItem(
             item_id=f"tmp-c{n}",
             kind="calc",
@@ -45,5 +49,8 @@ def run(state: TurnState) -> dict:
             evidence_type=etype,
             payload=result["payload"],
         ))
-    node_event(state, "read_calc", items=len(items), types=[i.evidence_type for i in items])
-    return {"calc_items": items}
+    node_event(
+        state, "read_calc",
+        items=len(items), types=[i.evidence_type for i in items], not_applicable=skipped,
+    )
+    return {"calc_items": items, "not_applicable": skipped}

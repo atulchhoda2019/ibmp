@@ -13,7 +13,7 @@ turn is allowed to read. Nothing the model emits can create a route, a tool call
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                  # 77 tests
+python -m pytest -q                  # 78 tests
 python scripts/validate_config.py    # served-config build gate
 uvicorn app.main:app --port 8200
 ```

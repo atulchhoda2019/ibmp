@@ -33,6 +33,7 @@ def fresh_turn() -> dict:
         "fact_items": [],
         "calc_items": [],
         "envelope": [],
+        "not_applicable": [],
         "abstain_reason": None,
         "draft": None,
         "validation": None,
@@ -51,7 +52,11 @@ def run(state: TurnState) -> dict:
     ).date().isoformat()
     utterance = " ".join(state.utterance.split())
     started_at = datetime.now(timezone.utc).isoformat()
-    node_event(state, "ingress", service_date=service_date, utterance_len=len(utterance))
+    node_event(
+        state, "ingress",
+        service_date=service_date, utterance_len=len(utterance),
+        intent=None, band=None, row=None, graph_id=None,
+    )
     return {
         **fresh_turn(),
         "service_date": service_date,
