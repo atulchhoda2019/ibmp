@@ -7,6 +7,7 @@ must already exist. Conversational graphs therefore still end at a typed proposa
 """
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -72,6 +73,49 @@ class GraphSpec:
         return not self.writes
 
 
+def run_tool(spec: GraphSpec, tool: str, **params: Any) -> Any:
+    """The tool implementations themselves. Bound identically by every graph backend."""
+    if tool not in spec.manifest:
+        raise ConfigError(f"{tool} is not in the manifest of {spec.name}")
+    if tool == "ProposeContributionChange":
+        proposal_id = str(uuid.uuid4())
+        return Proposal(
+            action=tool,
+            params=dict(params),
+            effective_date="next-payroll-period",
+            proposal_id=proposal_id,
+            confirmation_nonce=str(uuid.uuid4()),
+        )
+    if tool == "RetrieveEvidence":
+        # Every retrieval comes back as an envelope: facts are worthless without the
+        # citation and the date the citation was effective.
+        age_days = int(params.get("age_days", 2))
+        effective = date.today() - timedelta(days=age_days)
+        return {
+            "tool": tool,
+            "params": dict(params),
+            "facts": {},
+            "citations": [
+                {"source": f"summary-plan-description:{params.get('topic', 'general')}",
+                 "effective_date": effective.isoformat()}
+            ],
+        }
+    if tool == "ExecuteContributionChange":
+        # The command key is the proposal id: a retried command collapses onto one write.
+        command_key = params.get("command_key")
+        if not command_key:
+            raise ConfigError(f"{tool} requires a command_key so retries stay idempotent")
+        return Receipt(
+            command_key=str(command_key),
+            action=tool,
+            params={k: v for k, v in params.items() if k not in ("command_key", "effective_date")},
+            effective_date=str(params.get("effective_date", "next-payroll-period")),
+            executed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            reversal="Reply \u201cundo my contribution change\u201d before the next payroll run.",
+        )
+    return {"tool": tool, "params": dict(params)}
+
+
 @dataclass
 class StubGraph:
     """Records tool calls so tests can assert `no_data_reads` rows perform zero reads."""
@@ -80,46 +124,9 @@ class StubGraph:
     calls: list = field(default_factory=list)
 
     async def call(self, tool: str, **params: Any) -> Any:
-        if tool not in self.spec.manifest:
-            raise ConfigError(f"{tool} is not in the manifest of {self.spec.name}")
+        result = run_tool(self.spec, tool, **params)
         self.calls.append((tool, params))
-        if tool == "ProposeContributionChange":
-            proposal_id = str(uuid.uuid4())
-            return Proposal(
-                action=tool,
-                params=dict(params),
-                effective_date="next-payroll-period",
-                proposal_id=proposal_id,
-                confirmation_nonce=str(uuid.uuid4()),
-            )
-        if tool == "RetrieveEvidence":
-            # Every retrieval comes back as an envelope: facts are worthless without the
-            # citation and the date the citation was effective.
-            age_days = int(params.get("age_days", 2))
-            effective = date.today() - timedelta(days=age_days)
-            return {
-                "tool": tool,
-                "params": dict(params),
-                "facts": {},
-                "citations": [
-                    {"source": f"summary-plan-description:{params.get('topic', 'general')}",
-                     "effective_date": effective.isoformat()}
-                ],
-            }
-        if tool == "ExecuteContributionChange":
-            # The command key is the proposal id: a retried command collapses onto one write.
-            command_key = params.get("command_key")
-            if not command_key:
-                raise ConfigError(f"{tool} requires a command_key so retries stay idempotent")
-            return Receipt(
-                command_key=str(command_key),
-                action=tool,
-                params={k: v for k, v in params.items() if k not in ("command_key", "effective_date")},
-                effective_date=str(params.get("effective_date", "next-payroll-period")),
-                executed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                reversal="Reply \u201cundo my contribution change\u201d before the next payroll run.",
-            )
-        return {"tool": tool, "params": dict(params)}
+        return result
 
 
 @dataclass(frozen=True)
@@ -132,8 +139,14 @@ class GraphRegistry:
         except KeyError:
             raise ConfigError(f"unknown graph {name!r}") from None
 
-    def instantiate(self, name: str) -> StubGraph:
-        return StubGraph(spec=self.get(name))
+    def instantiate(self, name: str, *, budgets: Optional[Mapping[str, int]] = None) -> Any:
+        """`GRAPH_BACKEND=langgraph` runs the same manifest as compiled LangGraph nodes."""
+        spec = self.get(name)
+        if os.environ.get("GRAPH_BACKEND", "stub").lower() == "langgraph":
+            from .langgraph_backend import LangGraphGraph
+
+            return LangGraphGraph(spec=spec, budgets=dict(budgets or {}))
+        return StubGraph(spec=spec)
 
     def assert_manifest_legal(
         self,
