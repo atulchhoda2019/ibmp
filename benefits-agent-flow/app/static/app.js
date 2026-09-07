@@ -34,10 +34,14 @@ const SUGGESTIONS = [
 let clarify = null;
 let conversationId = "";
 
+const TRACE_EMPTY = "Send a message to see the nodes that ran.";
+
 function newConversation() {
   conversationId = `C-${Math.random().toString(36).slice(2, 10)}`;
   conversationField.value = conversationId;
   clarify = null;
+  transcript.innerHTML = "";
+  tracePanel.textContent = TRACE_EMPTY;
 }
 
 function fillParticipants() {
@@ -88,7 +92,7 @@ function renderPreview(body) {
   card.className = "proposal";
   card.innerHTML = `
     <h3>Typed proposal · awaiting confirmation</h3>
-    <div>${proposal.action} · ${JSON.stringify(proposal.current)} → ${JSON.stringify(proposal.requested)}</div>
+    <div>${proposal.action} for ${proposal.participant_ref} · ${JSON.stringify(proposal.current)} → ${JSON.stringify(proposal.requested)}</div>
     <div>checks passed: ${proposal.validations.join(", ")}</div>
     <div>${body.undo_window || ""}</div>
     <code>nonce ${proposal.nonce} · expires ${proposal.expires_at}</code>
@@ -182,7 +186,7 @@ const TRACE_FIELDS = [
 
 function renderTrace(events) {
   if (!events.length) {
-    tracePanel.textContent = "No trace for this turn.";
+    tracePanel.textContent = TRACE_EMPTY;
     return;
   }
   const latest = events[events.length - 1].turn_id;
@@ -246,14 +250,17 @@ composer.addEventListener("submit", (event) => {
 tenantSelect.addEventListener("change", () => {
   fillParticipants();
   newConversation();
-  transcript.innerHTML = "";
-  bubble("system", `Switched to ${tenantSelect.value}. New conversation.`);
+  bubble("system", `Switched to ${tenantSelect.value} · ${participantSelect.value}. New conversation.`);
+});
+
+// The thread is bound to one participant: switching identity must not inherit a live proposal.
+participantSelect.addEventListener("change", () => {
+  newConversation();
+  bubble("system", `Switched to ${participantSelect.value}. New conversation.`);
 });
 
 document.getElementById("reset").addEventListener("click", () => {
   newConversation();
-  transcript.innerHTML = "";
-  tracePanel.textContent = "Send a message to see the nodes that ran.";
   bubble("system", "New conversation.");
 });
 

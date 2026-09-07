@@ -1,4 +1,4 @@
-version: table-v12
+version: table-v13
 # First matching row wins. Guard rows come first: a LOW band or an out-of-scope intent
 # can never reach an ordinary row, and no row raises the rung ceiling.
 rows:
@@ -70,7 +70,7 @@ rows:
     posture: READ
     rung_max: 0
     budgets: {max_steps: 6, max_tools: 3, max_tokens: 700, deadline_ms: 5000}
-    evidence: [elections:fp_live]
+    evidence: [balances:fp_live, elections:fp_live]
 
   - row: r-034
     intent: deductible_status

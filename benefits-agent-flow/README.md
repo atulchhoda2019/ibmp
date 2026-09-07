@@ -6,14 +6,14 @@ decision table, capability bundles and fixtures — and shares nothing with `int
 which remains the routing reference implementation.
 
 Models interpret, tables decide. The classifier only proposes an intent; `decision_table.yaml`
-(`table-v12`) picks the graph, the posture, the rung ceiling, the budgets and the evidence the
+(`table-v13`) picks the graph, the posture, the rung ceiling, the budgets and the evidence the
 turn is allowed to read. Nothing the model emits can create a route, a tool call, a fact or a write.
 
 ## Run it
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                  # 73 tests
+python -m pytest -q                  # 77 tests
 python scripts/validate_config.py    # served-config build gate
 uvicorn app.main:app --port 8200
 ```

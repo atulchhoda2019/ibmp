@@ -95,6 +95,7 @@ main {
   max-width: 76%;
 }
 .proposal h3 { margin: 0 0 6px; font-size: 13px; color: var(--warn); }
+.proposal div { overflow-wrap: anywhere; }
 .proposal code { color: var(--muted); font-size: 12px; word-break: break-all; }
 .proposal button {
   margin-top: 10px;
@@ -201,4 +202,13 @@ main {
 
 @media (max-width: 900px) {
   main { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 520px) {
+  main { padding: 12px; }
+  .transcript, .suggestions, .composer { padding-left: 12px; padding-right: 12px; }
+  .msg, .proposal, .receipt { max-width: 100%; }
+  .composer { flex-wrap: wrap; }
+  .composer input { min-width: 0; }
+  .composer button { flex: 1; padding: 10px 16px; }
 }

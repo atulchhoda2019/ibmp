@@ -31,14 +31,27 @@ LEAD = {
 }
 
 
+def _pairs(payload: dict, prefix: str = "") -> list[str]:
+    """Flatten a tool payload into "<label> is <value>" fragments, nested groups included."""
+    parts: list[str] = []
+    for key, value in payload.items():
+        label = f"{prefix}{key}".replace("_", " ")
+        if isinstance(value, dict):
+            parts.extend(_pairs(value, f"{prefix}{key} "))
+        elif isinstance(value, str) and value:
+            parts.append(f"{label} is {value}")
+        elif isinstance(value, list) and all(isinstance(entry, str) for entry in value) and value:
+            parts.append(f"{label} is {', '.join(value)}")
+    return parts
+
+
 def _sentence(item: dict) -> str:
     payload = item["payload"]
     if item["kind"] == "policy":
         return payload["text"].rstrip(".")
+    parts = _pairs(payload)
     if item["kind"] == "fact":
-        parts = [f"{k.replace('_', ' ')} is {v}" for k, v in payload.items() if isinstance(v, str) and v]
         return "Your record shows " + ", ".join(parts) if parts else "Your record was retrieved"
-    parts = [f"{k.replace('_', ' ')} is {v}" for k, v in payload.items() if isinstance(v, str) and v]
     return "The calculation shows " + ", ".join(parts) if parts else "The calculation returned no values"
 
 

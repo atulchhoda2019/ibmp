@@ -114,9 +114,13 @@ def resolve_clarification(state: TurnState) -> Optional[Intent]:
     answer = state.utterance.strip().lower()
     for option in offered:
         if answer == option["label"].lower() or answer == option["intent"].lower():
+            # A slot-filling option carries the value itself, so it overrides the original ask.
+            slots = {
+                **extract_slots(option["intent"], state.ui_context.get("clarify_utterance", "")),
+                **extract_slots(option["intent"], state.utterance),
+            }
             return Intent(
-                name=option["intent"], confidence=1.0, band="HIGH",
-                slots=extract_slots(option["intent"], state.ui_context.get("clarify_utterance", "")),
+                name=option["intent"], confidence=1.0, band="HIGH", slots=slots,
                 alternates=[], source="rule",
             )
     return None

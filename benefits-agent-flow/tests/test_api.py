@@ -83,6 +83,43 @@ def test_trace_returns_the_audit_events_for_the_conversation(client):
     assert trace["versions"]["catalog_version"] == "intents-v7"
 
 
+def test_a_balance_answer_states_the_balance(client):
+    answer = client.post("/turn", json=body("what is my 401k balance right now")).json()
+    assert answer["kind"] == "answer"
+    assert "412300.00" in answer["text"]
+
+
+def test_a_second_turn_does_not_inherit_the_first_turns_answer(client):
+    conversation = f"C-{uuid.uuid4().hex[:8]}"
+    first = client.post("/turn", json=body("what is my 401k balance right now", conversation)).json()
+    second = client.post("/turn", json=body("how much of my deductible have i met", conversation)).json()
+    assert second["kind"] == "answer"
+    assert second["text"] != first["text"]
+
+
+def test_a_turn_after_a_receipt_answers_instead_of_repeating_the_receipt(client):
+    conversation = f"C-{uuid.uuid4().hex[:8]}"
+    preview = client.post("/turn", json=body("change my 401k contribution to 8 percent", conversation)).json()
+    client.post("/confirm", json={"conversationId": conversation,
+                                  "proposalId": preview["proposal"]["proposal_id"],
+                                  "nonce": preview["nonce"]})
+    after = client.post("/turn", json=body("what is my 401k balance right now", conversation)).json()
+    assert after["kind"] == "answer"
+
+
+def test_a_slot_filling_clarify_option_completes_the_route(client):
+    conversation = f"C-{uuid.uuid4().hex[:8]}"
+    asked = client.post("/turn", json=body("i want to change my contributions", conversation)).json()
+    assert asked["kind"] == "clarify"
+    resolved = client.post("/turn", json=body("8 percent", conversation, ui_context={
+        "clarify_rounds": 1,
+        "clarify_options": asked["options"],
+        "clarify_utterance": "i want to change my contributions",
+    })).json()
+    assert resolved["kind"] == "preview"
+    assert resolved["proposal"]["requested"]["rate"] == "0.08"
+
+
 def test_chat_ui_is_served(client):
     page = client.get("/")
     assert page.status_code == 200
