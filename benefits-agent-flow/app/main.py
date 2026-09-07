@@ -1,8 +1,11 @@
-"""FastAPI surface: POST /turn, POST /confirm, GET /trace/{conversation_id}."""
+"""FastAPI surface: POST /turn, POST /confirm, GET /trace/{conversation_id}, and the chat UI."""
 import os
+import pathlib
 import uuid
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from langgraph.types import Command
 from pydantic import BaseModel
 
@@ -14,6 +17,14 @@ from app.tracing import run_config, run_url
 
 app = FastAPI(title="benefits-agent-flow")
 GRAPH = build_graph(os.environ.get("CHECKPOINT_PATH", "var/checkpoints.sqlite"))
+
+STATIC = pathlib.Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(STATIC / "index.html")
 
 
 class TurnRequest(BaseModel):

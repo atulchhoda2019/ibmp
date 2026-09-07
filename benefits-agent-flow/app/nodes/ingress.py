@@ -20,11 +20,46 @@ def resolve_participant(claim: str) -> str:
     raise KeyError("unresolvable identity claim")
 
 
+def fresh_turn() -> dict:
+    """Clear everything the previous turn left on the thread.
+
+    The checkpointer keys the thread on the conversation, so without this a second turn
+    inherits the first turn's response, envelope and proposal.
+    """
+    return {
+        "intent": None,
+        "plan": None,
+        "evidence_items": [],
+        "fact_items": [],
+        "calc_items": [],
+        "envelope": [],
+        "not_applicable": [],
+        "abstain_reason": None,
+        "draft": None,
+        "validation": None,
+        "proposal": None,
+        "confirmed": False,
+        "execution": None,
+        "receipt": None,
+        "response": None,
+        "retries": {},
+    }
+
+
 def run(state: TurnState) -> dict:
     service_date = state.service_date or state.ui_context.get("service_date") or datetime.now(
         timezone.utc
     ).date().isoformat()
     utterance = " ".join(state.utterance.split())
     started_at = datetime.now(timezone.utc).isoformat()
-    node_event(state, "ingress", service_date=service_date, utterance_len=len(utterance))
-    return {"service_date": service_date, "utterance": utterance, "turn_started_at": started_at}
+    node_event(
+        state, "ingress",
+        service_date=service_date, utterance_len=len(utterance),
+        intent=None, band=None, row=None, graph_id=None,
+    )
+    return {
+        **fresh_turn(),
+        "service_date": service_date,
+        "utterance": utterance,
+        "turn_started_at": started_at,
+    }

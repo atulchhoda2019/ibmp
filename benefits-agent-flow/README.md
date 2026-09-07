@@ -6,17 +6,22 @@ decision table, capability bundles and fixtures — and shares nothing with `int
 which remains the routing reference implementation.
 
 Models interpret, tables decide. The classifier only proposes an intent; `decision_table.yaml`
-(`table-v12`) picks the graph, the posture, the rung ceiling, the budgets and the evidence the
+(`table-v13`) picks the graph, the posture, the rung ceiling, the budgets and the evidence the
 turn is allowed to read. Nothing the model emits can create a route, a tool call, a fact or a write.
 
 ## Run it
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                  # 72 tests
+python -m pytest -q                  # 78 tests
 python scripts/validate_config.py    # served-config build gate
 uvicorn app.main:app --port 8200
 ```
+
+The chat UI is at `http://localhost:8200/`: the tenant and participant come from the
+context panel rather than the message, clarifying questions render as the exact options
+the planner offered, a corridor preview renders as a Confirm button carrying the proposal
+id and nonce, and the right panel replays `/trace` for the turn that just ran.
 
 ```bash
 curl -s localhost:8200/turn -H 'content-type: application/json' -d '{

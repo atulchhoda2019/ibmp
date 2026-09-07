@@ -73,6 +73,7 @@ class TurnState(BaseModel):
     fact_items: list[EnvelopeItem] = []
     calc_items: list[EnvelopeItem] = []
     envelope: list[EnvelopeItem] = []
+    not_applicable: list[str] = []
     abstain_reason: Optional[str] = None
 
     draft: Optional[str] = None

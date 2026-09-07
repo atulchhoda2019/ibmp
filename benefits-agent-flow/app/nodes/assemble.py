@@ -40,12 +40,13 @@ def fresh(item: EnvelopeItem, state: TurnState) -> bool:
     return (_parse(state.turn_started_at) - _parse(item.observed_at)).total_seconds() <= max_age
 
 
-def refetch(state: TurnState) -> list[EnvelopeItem]:
+def refetch(state: TurnState) -> tuple[list[EnvelopeItem], list[str]]:
     items: list[EnvelopeItem] = []
     items += read_evidence.run(state).get("evidence_items", [])
     items += read_facts.run(state).get("fact_items", [])
-    items += read_calc.run(state).get("calc_items", [])
-    return items
+    calc = read_calc.run(state)
+    items += calc.get("calc_items", [])
+    return items, calc.get("not_applicable", [])
 
 
 def run(state: TurnState) -> dict:
@@ -56,24 +57,36 @@ def run(state: TurnState) -> dict:
     kept, disclosures = _partition(items, state)
     missing = [t for t in required if not any(i.evidence_type == t for i in kept)]
 
+    not_applicable = list(state.not_applicable)
+
     if missing and attempts < 1:
         node_event(state, "assemble", refetch=True, missing=missing)
-        kept, disclosures = _partition(refetch(state), state)
+        refetched, not_applicable = refetch(state)
+        kept, disclosures = _partition(refetched, state)
         missing = [t for t in required if not any(i.evidence_type == t for i in kept)]
         attempts += 1
 
     if missing:
-        node_event(state, "assemble", abstain=True, missing=missing)
+        node_event(state, "assemble", abstain=True, missing=missing, not_applicable=not_applicable)
+        # Nothing on file is a different answer from retrieval failing: say which one it was.
+        inapplicable = [t for t in missing if t in not_applicable]
+        if inapplicable and len(inapplicable) == len(missing):
+            text = ("Your coverage on file does not include the data this question needs, "
+                    "so there is nothing for me to report. A specialist can confirm your coverage.")
+            reason = f"not applicable to this participant: {', '.join(sorted(inapplicable))}"
+        else:
+            text = ("I could not retrieve the plan information this answer depends on, so I will not guess. "
+                    "A specialist can pick this up with the same context.")
+            reason = f"missing required evidence: {', '.join(sorted(missing))}"
         return {
             "envelope": [],
             "retries": {**state.retries, "assemble": attempts},
-            "abstain_reason": f"required evidence unavailable: {', '.join(sorted(missing))}",
+            "abstain_reason": reason,
             "response": {
                 "kind": "answer",
-                "text": "I could not retrieve the plan information this answer depends on, so I will not guess. "
-                        "A specialist can pick this up with the same context.",
+                "text": text,
                 "citations": [],
-                "limitation": f"missing required evidence: {', '.join(sorted(missing))}",
+                "limitation": reason,
             },
         }
 
