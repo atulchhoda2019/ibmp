@@ -1,4 +1,4 @@
-"""The HTTP surface: /turn, /confirm, /trace."""
+"""The HTTP surface: the chat UI, /turn, /confirm, /trace."""
 import importlib
 import uuid
 
@@ -81,6 +81,13 @@ def test_trace_returns_the_audit_events_for_the_conversation(client):
     nodes = [event["node"] for event in trace["events"]]
     assert "planner" in nodes and "respond" in nodes
     assert trace["versions"]["catalog_version"] == "intents-v7"
+
+
+def test_chat_ui_is_served(client):
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "/static/app.js" in page.text
+    assert client.get("/static/app.js").status_code == 200
 
 
 def test_no_participant_email_reaches_the_trace(client):

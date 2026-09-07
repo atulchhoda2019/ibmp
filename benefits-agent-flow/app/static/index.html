@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Benefits assistant · benefits-agent-flow</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+<header>
+  <h1>Benefits assistant</h1>
+  <p class="sub">Every turn runs the governed LangGraph turn. The panel on the right is the audit trace.</p>
+</header>
+
+<main>
+  <section class="chat" aria-label="Conversation">
+    <div id="transcript" class="transcript" aria-live="polite"></div>
+
+    <div id="suggestions" class="suggestions"></div>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <input id="utterance" name="utterance" placeholder="Ask about your benefits…" aria-label="Message" />
+      <button type="submit">Send</button>
+    </form>
+  </section>
+
+  <aside class="side">
+    <section class="card">
+      <h2>Request context</h2>
+      <p class="hint">Tenant, participant and entitlements come from here, never from the message.</p>
+      <label>Tenant
+        <select id="tenant">
+          <option value="T-ACME" selected>T-ACME · rung 2, propose then confirm</option>
+          <option value="T-ZEN">T-ZEN · rung 1, draft only</option>
+          <option value="T-NOVA">T-NOVA · rung 3, execute and notify</option>
+          <option value="T-LOCK">T-LOCK · view only</option>
+        </select>
+      </label>
+      <label>Participant
+        <select id="participant"></select>
+      </label>
+      <label>Conversation
+        <input id="conversation" readonly />
+      </label>
+      <button type="button" id="reset" class="ghost">New conversation</button>
+    </section>
+
+    <section class="card">
+      <h2>Turn trace</h2>
+      <div id="trace" class="trace">Send a message to see the nodes that ran.</div>
+    </section>
+  </aside>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
