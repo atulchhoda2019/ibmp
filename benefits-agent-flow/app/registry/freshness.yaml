@@ -1,0 +1,21 @@
+version: freshness-v2
+# max_age_s: how old an item's observed_at may be, measured against the turn clock.
+#   fp_session must be produced this turn, fp_live tolerates five minutes, fp_current
+#   ignores age and instead requires the version effective on the turn's service date.
+policies:
+  fp_session:
+    max_age_s: 0
+    effective_on_service_date: false
+    on_violation: refetch_then_abstain
+  fp_live:
+    max_age_s: 300
+    effective_on_service_date: false
+    on_violation: refetch_then_abstain
+  fp_current:
+    max_age_s: null
+    effective_on_service_date: true
+    on_violation: refetch_then_abstain
+  fp_background:
+    max_age_s: 86400
+    effective_on_service_date: false
+    on_violation: drop_and_disclose

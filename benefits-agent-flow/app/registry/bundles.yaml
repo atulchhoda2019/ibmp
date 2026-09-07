@@ -1,0 +1,18 @@
+version: bundles-v4
+# Per-tenant capability bundle. The rung here is the tenant's ceiling for an action; the
+# effective rung is min(tenant rung, decision table rung_max), so a table row can never
+# raise a tenant above what it bought.
+#   1 draft only, 2 propose + confirm, 3 execute + notify, 4 autonomous
+tenants:
+  T-ACME:
+    capabilities: [retirement_view, retirement_write, health_view]
+    rungs: {contribution_change: 2}
+  T-ZEN:
+    capabilities: [retirement_view, retirement_write, health_view]
+    rungs: {contribution_change: 1}
+  T-NOVA:
+    capabilities: [retirement_view, retirement_write, health_view]
+    rungs: {contribution_change: 3}
+  T-LOCK:
+    capabilities: [retirement_view, health_view]
+    rungs: {contribution_change: 0}

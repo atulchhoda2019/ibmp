@@ -1,0 +1,162 @@
+version: table-v12
+# First matching row wins. Guard rows come first: a LOW band or an out-of-scope intent
+# can never reach an ordinary row, and no row raises the rung ceiling.
+rows:
+  - row: r-001
+    intent: any
+    band: LOW
+    graph: g_fallback_v1
+    posture: READ
+    rung_max: 0
+    clarify: false
+    handoff: true
+    budgets: {max_steps: 2, max_tools: 0, max_tokens: 400, deadline_ms: 2000}
+    evidence: []
+
+  - row: r-002
+    intent: __out_of_scope__
+    band: any
+    graph: g_fallback_v1
+    posture: READ
+    rung_max: 0
+    handoff: true
+    budgets: {max_steps: 2, max_tools: 0, max_tokens: 400, deadline_ms: 2000}
+    evidence: []
+
+  - row: r-009
+    intent: retirement_projection
+    band: HIGH
+    graph: g_retirement_readonly_v2
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 8, max_tools: 6, max_tokens: 1200, deadline_ms: 6000}
+    evidence: [plan_rules:fp_current, elections:fp_live, match_projection:fp_session, limit_room:fp_session]
+
+  - row: r-017
+    intent: contribution_change
+    band: HIGH
+    requires_capability: retirement_write
+    risk: transactional
+    graph: g_contribution_change_v3
+    posture: WRITE
+    rung_max: 4
+    budgets: {max_steps: 10, max_tools: 6, max_tokens: 1500, deadline_ms: 8000}
+    evidence: [plan_rules:fp_current, elections:fp_session, limit_room:fp_session]
+
+  - row: r-021
+    intent: contribution_change
+    band: MEDIUM
+    graph: g_retirement_readonly_v2
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 6, max_tools: 4, max_tokens: 900, deadline_ms: 6000}
+    evidence: [plan_rules:fp_current, elections:fp_live]
+
+  - row: r-024
+    intent: retirement_projection
+    band: MEDIUM
+    graph: g_clarify_v1
+    posture: READ
+    rung_max: 0
+    clarify: true
+    budgets: {max_steps: 2, max_tools: 0, max_tokens: 300, deadline_ms: 2000}
+    evidence: []
+
+  - row: r-030
+    intent: balance_inquiry
+    band: any
+    requires_capability: retirement_view
+    graph: g_balance_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 6, max_tools: 3, max_tokens: 700, deadline_ms: 5000}
+    evidence: [elections:fp_live]
+
+  - row: r-034
+    intent: deductible_status
+    band: any
+    requires_capability: health_view
+    graph: g_deductible_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 6, max_tools: 3, max_tokens: 700, deadline_ms: 5000}
+    evidence: [plan_rules:fp_current, accumulators:fp_live, deductible:fp_session]
+
+  - row: r-038
+    intent: pt_cost_estimate
+    band: HIGH
+    requires_capability: health_view
+    graph: g_health_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 8, max_tools: 5, max_tokens: 1100, deadline_ms: 6000}
+    evidence: [plan_rules:fp_current, accumulators:fp_live, pt_cost:fp_session]
+
+  - row: r-040
+    intent: pt_cost_estimate
+    band: MEDIUM
+    graph: g_clarify_v1
+    posture: READ
+    rung_max: 0
+    clarify: true
+    budgets: {max_steps: 2, max_tools: 0, max_tokens: 300, deadline_ms: 2000}
+    evidence: []
+
+  - row: r-044
+    intent: eligibility_status
+    band: any
+    graph: g_eligibility_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 6, max_tools: 3, max_tokens: 700, deadline_ms: 5000}
+    evidence: [plan_rules:fp_current, eligibility:fp_live]
+
+  - row: r-050
+    intent: life_event_divorce
+    band: any
+    graph: g_life_event_readonly_v1
+    posture: READ
+    rung_max: 0
+    handoff: true
+    budgets: {max_steps: 6, max_tools: 3, max_tokens: 900, deadline_ms: 5000}
+    evidence: [plan_rules:fp_current]
+
+  - row: r-060
+    intent: beneficiary_view
+    band: any
+    requires_capability: retirement_view
+    graph: g_balance_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 6, max_tools: 3, max_tokens: 700, deadline_ms: 5000}
+    evidence: [elections:fp_live]
+
+  - row: r-064
+    intent: claim_status
+    band: any
+    requires_capability: health_view
+    graph: g_health_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 6, max_tools: 3, max_tokens: 700, deadline_ms: 5000}
+    evidence: [accumulators:fp_live]
+
+  - row: r-068
+    intent: id_card_request
+    band: any
+    requires_capability: health_view
+    graph: g_health_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 6, max_tools: 3, max_tokens: 700, deadline_ms: 5000}
+    evidence: [plan_rules:fp_current]
+
+  - row: r-070
+    intent: plan_compare
+    band: any
+    requires_capability: health_view
+    graph: g_health_readonly_v1
+    posture: READ
+    rung_max: 0
+    budgets: {max_steps: 8, max_tools: 4, max_tokens: 1100, deadline_ms: 6000}
+    evidence: [plan_rules:fp_current]

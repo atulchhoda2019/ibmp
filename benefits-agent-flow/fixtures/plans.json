@@ -1,0 +1,41 @@
+{
+  "PL-401K-ACME": {
+    "tenant_id": "T-ACME",
+    "kind": "retirement",
+    "annual_deferral_limit": "23500.00",
+    "max_deferral_rate": "0.75",
+    "match": {"rate": "0.50", "up_to": "0.06"},
+    "waiting_period_days": 90
+  },
+  "PL-PPO-ACME": {
+    "tenant_id": "T-ACME",
+    "kind": "medical",
+    "deductible": "2000.00",
+    "coinsurance_rate": "0.20",
+    "pt_allowed_amount": "120.00"
+  },
+  "PL-401K-ZEN": {
+    "tenant_id": "T-ZEN",
+    "kind": "retirement",
+    "annual_deferral_limit": "23500.00",
+    "max_deferral_rate": "0.60",
+    "match": {"rate": "0.25", "up_to": "0.08"},
+    "waiting_period_days": 180
+  },
+  "PL-401K-NOVA": {
+    "tenant_id": "T-NOVA",
+    "kind": "retirement",
+    "annual_deferral_limit": "23500.00",
+    "max_deferral_rate": "0.50",
+    "match": {"rate": "1.00", "up_to": "0.04"},
+    "waiting_period_days": 30
+  },
+  "PL-401K-LOCK": {
+    "tenant_id": "T-LOCK",
+    "kind": "retirement",
+    "annual_deferral_limit": "23500.00",
+    "max_deferral_rate": "0.40",
+    "match": {"rate": "0.50", "up_to": "0.03"},
+    "waiting_period_days": 60
+  }
+}

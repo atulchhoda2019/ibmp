@@ -1,0 +1,7 @@
+{
+  "_comment": "Display metadata only. Capabilities and rungs are governed by app/registry/bundles.yaml, which is authoritative.",
+  "T-ACME": {"name": "Acme Industries", "plans": ["PL-401K-ACME", "PL-PPO-ACME"]},
+  "T-ZEN": {"name": "Zen Robotics", "plans": ["PL-401K-ZEN"]},
+  "T-NOVA": {"name": "Nova Health", "plans": ["PL-401K-ACME"]},
+  "T-LOCK": {"name": "Lockstep Rail (writes not purchased)", "plans": ["PL-401K-ACME"]}
+}

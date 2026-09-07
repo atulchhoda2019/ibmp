@@ -1,0 +1,68 @@
+version: intents-v7
+bands:
+  HIGH: [0.85, 1.01]
+  MEDIUM: [0.55, 0.85]
+  LOW: [0.0, 0.55]
+
+# Closed catalog. The classifier may only return one of these names; anything else
+# becomes __out_of_scope__ and falls to the LOW ladder.
+intents:
+  - name: contribution_change
+    risk: transactional
+    keywords: [contribution, contribute, defer, deferral, 401k rate, change my rate]
+    slots: [rate, effective_date]
+  - name: retirement_projection
+    risk: advisory
+    keywords: [what happens if, projection, match, raise my contribution, if i raise]
+    slots: [rate]
+  - name: balance_inquiry
+    risk: read
+    keywords: [balance, how much do i have, account value]
+    slots: []
+  - name: deductible_status
+    risk: read
+    keywords: [deductible, met my deductible, out of pocket]
+    slots: []
+  - name: pt_cost_estimate
+    risk: advisory
+    keywords: [physical therapy, pt visit, cost estimate, how much will it cost]
+    slots: [visits]
+  - name: eligibility_status
+    risk: read
+    keywords: [eligible, eligibility, waiting period, when can i enroll]
+    slots: []
+  - name: beneficiary_view
+    risk: read
+    keywords: [beneficiary, beneficiaries, who gets]
+    slots: []
+  - name: life_event_divorce
+    risk: sensitive
+    keywords: [divorce, divorcing, separation, qdro]
+    slots: []
+  - name: plan_compare
+    risk: advisory
+    keywords: [compare, ppo vs hdhp, which plan, difference between plans]
+    slots: []
+  - name: claim_status
+    risk: read
+    keywords: [claim, claim status, was my claim paid]
+    slots: []
+  - name: id_card_request
+    risk: read
+    keywords: [id card, insurance card, member card]
+    slots: []
+  - name: __out_of_scope__
+    risk: none
+    keywords: []
+    slots: []
+
+# Stage 0: exact-shape rules bypass the classifier entirely at confidence 1.0.
+rules:
+  - pattern: '^\s*(please\s+)?(change|set|raise|lower)\s+(my\s+)?(401k\s+)?contribution\s+(rate\s+)?to\s+(?P<rate>\d{1,2}(\.\d+)?)\s*(%|percent)\s*$'
+    intent: contribution_change
+  - pattern: '^\s*ok,?\s*(please\s+)?(change|set|make)\s+it\s+to\s+(?P<rate>\d{1,2}(\.\d+)?)\s*(%|percent)\s*$'
+    intent: contribution_change
+  - pattern: '^\s*what\s+is\s+my\s+balance\s*\??\s*$'
+    intent: balance_inquiry
+  - pattern: '^\s*(am\s+i\s+eligible|when\s+can\s+i\s+enroll)\s*\??\s*$'
+    intent: eligibility_status
