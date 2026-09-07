@@ -1,216 +1,530 @@
-# Intent Routing Engine: Design Spec (reference implementation)
+# design.md · Benefits Conversation Runtime, Agent-Call Flow with Mocked Data Plane
 
-Companion image: `Intent_Routing_Whiteboard.png` (three worked confidence flows + the routing table this spec implements).
+Reference implementation spec for Devin. Build the flow INSIDE the agent calls: the
+LangGraph state machine for one conversational turn, with every fact source mocked
+(Operational Data Layer, policy evidence, calculators, model gateway, system of record),
+LangGraph checkpointing for resume, a human-in-the-loop transaction corridor, and
+LangSmith traces on every node and tool call.
 
-## 1. Goal
+This file is self-contained. The companion file `design_scenarios_v1.md` holds the 12
+acceptance scenarios (S1..S12); the tests in section 12 map to them.
 
-Build a runnable reference implementation of the **deterministic planner** for a benefits assistant: a governed decision system with a classifier inside it. The engine takes an utterance plus request context and returns exactly one pre-approved **graph selection** with budgets: it never assembles a plan dynamically and it never executes writes. Every scenario in the decision table below must pass as an automated test.
+---
 
-Core doctrine, enforced in code:
+## 0. Non-negotiable invariants
 
-- **Models interpret, tables decide.** The classifier proposes `(intent, slots, confidence)`; a versioned decision table makes the routing decision. No business logic in the table: it routes, it never adjudicates.
-- **First matching row wins.** LOW-confidence and FROZEN guard rows outrank everything.
-- **Confidence ≠ autonomy.** High confidence selects a graph faster; it never skips a gate. There is **no execute tool** anywhere in a conversational graph: transactional graphs end at a **typed proposal** that requires a nonce-bound confirmation before anything downstream (out of scope here, stubbed) executes.
-- **One output, two consumers.** The planner's product `(intent, canonical slots, versions)` is both the routing decision and a deterministic cache key. Never similarity-keyed.
+These are enforced by structure, and the test suite proves each one.
 
-## 2. Scope
+- I1 · The model never supplies an intent, a decision, or a fact. The classifier selects
+  an intent from a closed catalog; a versioned decision table selects the graph and
+  budgets; facts come only from typed mock tools.
+- I2 · No `Execute*` tool exists in any conversational graph. The only write-shaped tool
+  is `propose_contribution_change`, which returns a typed proposal object.
+- I3 · A write reaches the (mock) system of record only through the corridor: proposal,
+  deterministic validation, preview, nonce-bound confirmation, idempotent command,
+  read-after-write verification, receipt.
+- I4 · Every sentence in a composed answer must cite an evidence envelope item id. The
+  validator rejects uncited claims; one bounded retry, then scripted fallback.
+- I5 · The graph is resumable: kill the process between any two nodes, restart, and the
+  turn completes without re-running side effects (checkpointer + idempotency keys).
+- I6 · `userEmail` style identifiers are used to identify the user only and are never
+  forwarded to unrelated services or into model prompts.
 
-**In scope**
+---
 
-1. Stage 0 rules tier (regex/phrase rules → intent, bypasses classifier).
-2. Stage 1 classifier interface with a deterministic stub implementation (keyword/embedding-free, table-driven for tests) behind a `Classifier` protocol so a real model can be swapped in.
-3. Slot extraction + canonicalization (`"six percent"`, `"6%"`, `0.06` → `{"rate_pct": 6.0}`), typed slot schemas per intent, validation failure → clarify.
-4. Stage 2 decision table: versioned, declarative (YAML/JSON), loaded at startup, validated by CI checks (see §7).
-5. Stage 3 ambiguity ladder: HIGH runs the row's graph; MEDIUM runs the table-chosen move (read-only variant or one named-options clarifying question, then re-classify once, then fall down); LOW routes to fallback (scripted or human handoff payload).
-6. Graph registry with **stub graphs** (no real tools): each graph declares a tool manifest; the engine enforces that a selected graph's manifest is legal for the row's risk tier.
-7. Deterministic cache key derivation.
-8. Structured trace per request: versions (catalog, table), fired row index, ladder path, budgets.
+## 1. Stack and repo layout
 
-**Out of scope (stub or ignore)**
+Python 3.11. Dependencies: `langgraph`, `langchain-core`, `langsmith`, `pydantic>=2`,
+`fastapi`, `uvicorn`, `pyyaml`, `pytest`. No real LLM call anywhere; the model gateway is
+a deterministic mock (section 8) so the whole system runs offline and tests are stable.
 
-Real LLM calls, retrieval/RAG, Temporal execution, step-up auth UX (model it as a boolean in context), multi-tenant storage, PII handling. Stubs must keep the interfaces honest (async, typed) so real implementations can replace them.
-
-## 3. Data models
-
-### 3.1 Intent catalog (versioned artifact, `catalog/v1.yaml`)
-
-```yaml
-version: catalog-v1
-intents:
-  - id: plan.deductible.status
-    risk_tier: READ
-    slots:
-      plan_id: {type: string, source: [utterance, ui_context], required: false}
-  - id: ret.contribution.change
-    risk_tier: TRANSACT
-    slots:
-      rate_pct: {type: percent, min: 0, max: 100, required: true}
-    rule_patterns:
-      - "(increase|raise|change|set) my 401\\(?k\\)? (contribution )?to (?P<rate_pct>\\d+(\\.\\d+)?)\\s?%"
-  - id: life.event.divorce
-    risk_tier: SENSITIVE
-    slots: {}
-  - id: __out_of_scope__
-    risk_tier: READ
-    slots: {}
+```
+benefits-agent-flow/
+  app/
+    main.py                 # FastAPI: POST /turn, POST /confirm, GET /trace/{conversation_id}
+    state.py                # TurnState schema (single source of truth)
+    graph_build.py          # LangGraph StateGraph wiring + checkpointer + interrupts
+    nodes/
+      ingress.py            # canonicalize request, attach trusted context
+      planner.py            # stage 0 rules, stage 1 classifier, stage 2 table, stage 3 ladder
+      gate_plan.py          # governance gate 1: policy plane, capability bundle check
+      read_evidence.py      # mock policy evidence, filter first then rerank
+      read_facts.py         # mock ODL typed reads
+      read_calc.py          # mock deterministic calculators
+      assemble.py           # evidence envelope join + freshness enforcement
+      reason.py             # mock model gateway composes draft from envelope only
+      gate_output.py        # governance gate 2: validator (schema, citations, PII)
+      respond.py            # final answer or scripted fallback or handoff
+      corridor.py           # propose, preview, confirm, execute, verify, receipt
+    registry/
+      intent_catalog.yaml   # closed catalog (12 intents for the mock)
+      decision_table.yaml   # intent x band x capability x risk -> graph + budgets + rung
+      bundles.yaml          # per-tenant capability bundles (rungs per action)
+      freshness.yaml        # per-evidence-type freshness policies
+    mocks/
+      odl.py                # participants, elections, balances, accumulators
+      evidence.py           # versioned policy passages with effective dates
+      calculator.py         # limit room, match projection, PT cost estimate
+      model_gateway.py      # deterministic composer + fault injection
+      sor.py                # mock system of record: execute-once, receipts, fault injection
+    audit.py                # JSONL audit events, one line per node transition
+    tracing.py              # LangSmith setup helpers
+  fixtures/
+    participants.json
+    plans.json
+    passages.json
+    tenants.json
+  tests/
+    test_planner.py  test_ladder.py  test_envelope.py  test_corridor.py
+    test_resume.py   test_scenarios.py   test_invariants.py
+  .env.example              # LANGSMITH keys, fault-injection flags
 ```
 
-Notes: closed catalog: classifier output MUST be one of these ids; `__out_of_scope__` is a first-class class. Slot type `percent` gets a canonicalizer.
+---
 
-### 3.2 Request context
+## 2. TurnState · the single typed state
+
+Everything the graph knows lives here. LangGraph checkpoints this object at every node
+boundary. Pydantic model serialized to dict for the graph.
 
 ```python
-@dataclass(frozen=True)
-class RequestContext:
+# app/state.py
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
+
+class Intent(BaseModel):
+    name: str                       # from the closed catalog only
+    confidence: float               # calibrated 0..1
+    band: Literal["HIGH", "MEDIUM", "LOW"]
+    slots: dict[str, str] = {}      # canonicalized: "six percent" -> "0.06"
+    alternates: list[str] = []      # top competing labels, for MEDIUM options
+
+class PlanDecision(BaseModel):
+    graph_id: str                   # e.g. "g_contribution_change_v3"
+    table_row_id: str               # audit pointer into decision_table.yaml
+    rung: int                       # 1 draft, 2 propose+confirm, 3 execute+notify, 4 auto
+    budgets: dict[str, int]         # {"max_steps": 8, "max_tools": 6, "max_tokens": 1200, "deadline_ms": 6000}
+    required_evidence: list[str]    # evidence types + freshness policy ids
+    posture: Literal["READ", "WRITE"]
+
+class EnvelopeItem(BaseModel):
+    item_id: str                    # cite handle, e.g. "ev-7"
+    kind: Literal["policy", "fact", "calc"]
+    source: str                     # tool + version
+    effective_from: str
+    effective_to: Optional[str]
+    observed_at: str
+    payload: dict
+
+class Proposal(BaseModel):
+    proposal_id: str
+    action: Literal["ContributionChange"]
+    participant_ref: str            # opaque ref, never an email
+    current: dict                   # {"rate": "0.06"}
+    requested: dict                 # {"rate": "0.08", "effective_date": "2026-10-01"}
+    validations: list[str]          # deterministic checks that passed
+    nonce: str
+    expires_at: str
+
+class TurnState(BaseModel):
+    conversation_id: str
+    turn_id: str
     tenant_id: str
-    participant_ref: str          # opaque; never an SSN
-    auth_level: Literal["standard", "stepped_up"]
-    tenant_capabilities: dict     # e.g. {"ret.contribution.change": {"enabled": True, "rung": 2}}
-    tenant_frozen: bool           # open-enrollment freeze
-    ui_context: dict              # sanitized hints, e.g. {"viewing_plan": "PPO-High"}
-    conversation_state: dict      # slots/facts established earlier this conversation
+    participant_ref: str
+    utterance: str
+    ui_context: dict = {}
+    intent: Optional[Intent] = None
+    plan: Optional[PlanDecision] = None
+    envelope: list[EnvelopeItem] = []
+    draft: Optional[str] = None
+    validation: Optional[dict] = None
+    proposal: Optional[Proposal] = None
+    receipt: Optional[dict] = None
+    response: Optional[dict] = None     # {"kind": "answer|clarify|handoff|preview|receipt", ...}
+    retries: dict[str, int] = {}
+    audit: list[dict] = Field(default_factory=list)
 ```
 
-Identity fields come from verified claims upstream: **never** parse tenant/participant/auth from the utterance. The engine must not read them from text under any code path.
+Rule: nodes only read and write TurnState. No globals, no hidden caches. That is what
+makes checkpoint resume trivially correct.
 
-### 3.3 Classifier output
+---
+
+## 3. The LangGraph flow
+
+One turn is one graph invocation. `thread_id = conversation_id`, so the checkpointer
+carries multi-turn context and pending transactions across invocations.
+
+```
+ingress
+  -> planner                      (stage 0 rules, stage 1 classifier, stage 2 table, stage 3 ladder)
+  -> gate_plan                    (governance gate 1: bundle allows graph? consent? rung?)
+  -> [fan-out]  read_evidence  |  read_facts  |  read_calc      (parallel, READ ONLY)
+  -> assemble                     (join + freshness; missing required -> retry once or abstain)
+  -> reason                       (mock model composes draft, cites item_ids)
+  -> gate_output                  (validator; fail -> one retry of reason, then scripted)
+  -> branch:
+       posture READ   -> respond (END)
+       posture WRITE  -> corridor_propose -> corridor_preview -> [INTERRUPT]
+                         corridor_execute -> corridor_verify -> respond (END)
+```
+
+The interrupt before `corridor_execute` is the confirmation gate. LangGraph pauses the
+graph, the checkpointer persists the pending state, and the graph resumes only when the
+client posts the nonce back. Confirmation is structural, not a prompt convention.
 
 ```python
-@dataclass(frozen=True)
-class Interpretation:
-    intent: str                   # from the closed catalog
-    slots: dict                   # raw extracted values
-    confidence: float             # calibrated; 0..1
-    top_alternatives: list[tuple[str, float]]  # for named-options clarify + CSR handoff
-    source: Literal["rule", "model"]           # rule-matched bypasses bands
+# app/graph_build.py
+import os
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.sqlite import SqliteSaver
+from app.state import TurnState
+from app.nodes import (ingress, planner, gate_plan, read_evidence, read_facts,
+                       read_calc, assemble, reason, gate_output, respond, corridor)
+
+def route_after_planner(state: TurnState) -> str:
+    band = state.intent.band
+    if band == "LOW":
+        return "respond"                      # scripted or warm handoff, never a guess
+    return "gate_plan"
+
+def route_after_gate_output(state: TurnState) -> str:
+    if not state.validation["passed"]:
+        if state.retries.get("reason", 0) < 1:
+            return "reason"                   # one bounded retry
+        return "respond"                      # scripted fallback
+    if state.plan.posture == "WRITE":
+        return "corridor_propose"
+    return "respond"
+
+def build_graph(checkpoint_path: str = "checkpoints.sqlite"):
+    g = StateGraph(TurnState)
+    g.add_node("ingress", ingress.run)
+    g.add_node("planner", planner.run)
+    g.add_node("gate_plan", gate_plan.run)
+    g.add_node("read_evidence", read_evidence.run)
+    g.add_node("read_facts", read_facts.run)
+    g.add_node("read_calc", read_calc.run)
+    g.add_node("assemble", assemble.run)
+    g.add_node("reason", reason.run)
+    g.add_node("gate_output", gate_output.run)
+    g.add_node("corridor_propose", corridor.propose)
+    g.add_node("corridor_preview", corridor.preview)
+    g.add_node("corridor_execute", corridor.execute)
+    g.add_node("corridor_verify", corridor.verify)
+    g.add_node("respond", respond.run)
+
+    g.add_edge(START, "ingress")
+    g.add_edge("ingress", "planner")
+    g.add_conditional_edges("planner", route_after_planner,
+                            {"gate_plan": "gate_plan", "respond": "respond"})
+    # fan out to the three parallel reads, fan in at assemble
+    g.add_edge("gate_plan", "read_evidence")
+    g.add_edge("gate_plan", "read_facts")
+    g.add_edge("gate_plan", "read_calc")
+    g.add_edge("read_evidence", "assemble")
+    g.add_edge("read_facts", "assemble")
+    g.add_edge("read_calc", "assemble")
+    g.add_edge("assemble", "reason")
+    g.add_edge("reason", "gate_output")
+    g.add_conditional_edges("gate_output", route_after_gate_output,
+                            {"reason": "reason",
+                             "corridor_propose": "corridor_propose",
+                             "respond": "respond"})
+    g.add_edge("corridor_propose", "corridor_preview")
+    g.add_edge("corridor_preview", "corridor_execute")   # interrupted, see compile()
+    g.add_edge("corridor_execute", "corridor_verify")
+    g.add_edge("corridor_verify", "respond")
+    g.add_edge("respond", END)
+
+    saver = SqliteSaver.from_conn_string(checkpoint_path)
+    return g.compile(checkpointer=saver,
+                     interrupt_before=["corridor_execute"])   # the confirmation gate
 ```
 
-### 3.4 Decision table (`table/v1.yaml`)
+Parallel-read note: with plain edges as above LangGraph runs the three read nodes in the
+same superstep and merges their state writes; each read node must only append to its own
+key (`envelope` uses an append reducer, declare with `Annotated[list, operator.add]` in
+the graph schema if you use TypedDict instead of pydantic). If merge conflicts appear,
+switch `envelope` to three separate keys and join them in `assemble`.
 
-Ordered list; first match wins. Wildcard `any` allowed per column.
+---
+
+## 4. API surface (FastAPI)
+
+```
+POST /turn
+  body: {conversationId, tenantId, participantRef, utterance, uiContext}
+  -> runs the graph with config {"configurable": {"thread_id": conversationId}}
+  -> 200 {kind: "answer", text, citations[]}                (READ path)
+  -> 200 {kind: "clarify", question, options[]}             (MEDIUM ladder)
+  -> 200 {kind: "handoff", summary, top_intents[]}          (LOW ladder)
+  -> 200 {kind: "preview", proposal, nonce, expires_at}     (WRITE path, interrupted)
+
+POST /confirm
+  body: {conversationId, proposalId, nonce}
+  -> validates nonce + expiry against checkpointed pending proposal
+  -> resumes the interrupted graph:  graph.invoke(None, config)  after injecting
+     {"confirmed": true} via graph.update_state(config, {...})
+  -> 200 {kind: "receipt", receipt}
+  -> 409 if nonce mismatch, expired, or revalidation now fails (limits changed)
+
+GET /trace/{conversationId}
+  -> returns the JSONL audit events for the thread (and the LangSmith run URL if enabled)
+```
+
+Wrong or replayed nonce NEVER executes: `/confirm` checks nonce equality, expiry, and
+re-runs deterministic validation before resuming. Expired proposals require a fresh turn.
+
+---
+
+## 5. Planner internals (nodes/planner.py)
+
+Four stages, all deterministic except the mock classifier's lookup.
+
+Stage 0, rules: exact-match utterance patterns jump straight to a catalog intent with
+confidence 1.0 (examples: "change my contribution to N percent", "what is my balance").
+A rule hit never touches the classifier.
+
+Stage 1, classifier mock: keyword-scored lookup over `intent_catalog.yaml`. Returns
+top intent, calibrated confidence, alternates, and typed slots. The canonicalizer maps
+"six percent", "6%", "0.06" to slot `rate = "0.06"` so cache keys and proposals are stable.
+
+Stage 2, decision table: load `decision_table.yaml`, match on
+(intent, band, tenant capability, risk tier). Exactly one row wins; the row id goes into
+the audit record. The row supplies graph_id, posture, rung, budgets, required evidence.
 
 ```yaml
-version: table-v1
-catalog_version: catalog-v1
-bands: {HIGH: [0.85, 1.0], MEDIUM: [0.55, 0.85], LOW: [0.0, 0.55]}
-rows:
-  # guards first
-  - {intent: any, band: LOW, capability: any, risk: any, auth: any,
-     graph: G-FALLBACK, budgets: {steps: 2, tokens: 1000}, note: scripted-or-human, log_for_catalog_review: true}
-  - {intent: any, band: any, capability: FROZEN, risk: TRANSACT, auth: any,
-     graph: G-EXPLAIN-ROUTE, budgets: {steps: 4, tokens: 2000}, note: writes-disabled-during-freeze}
-  # normal rows
-  - {intent: plan.deductible.status, band: HIGH, capability: any, risk: READ, auth: any,
-     graph: G-DEDUCTIBLE, budgets: {steps: 6, tokens: 4000}}
-  - {intent: ret.contribution.change, band: RULE_OR_HIGH, capability: "enabled&rung>=2", risk: TRANSACT, auth: standard,
-     graph: G-CONTRIB-CHANGE, budgets: {steps: 12, tokens: 8000}, entry_node: step_up_auth}
-  - {intent: ret.contribution.change, band: RULE_OR_HIGH, capability: "enabled&rung>=2", risk: TRANSACT, auth: stepped_up,
-     graph: G-CONTRIB-CHANGE, budgets: {steps: 12, tokens: 8000}, entry_node: build_proposal}
-  - {intent: ret.contribution.change, band: any, capability: disabled, risk: TRANSACT, auth: any,
-     graph: G-EXPLAIN-ROUTE, budgets: {steps: 4, tokens: 2000}}
-  - {intent: ret.contribution.change, band: MEDIUM, capability: any, risk: TRANSACT, auth: any,
-     graph: G-CLARIFY, budgets: {steps: 1, tokens: 500}, note: one-named-options-question, no_data_reads: true}
-  - {intent: life.event.divorce, band: HIGH, capability: any, risk: SENSITIVE, auth: any,
-     graph: G-LIFE-EVENT-RO, budgets: {steps: 6, tokens: 4000}, note: empathetic-readonly-csr-offer}
+# registry/decision_table.yaml (excerpt)
+- row: r-017
+  intent: contribution_change
+  band: HIGH
+  requires_capability: retirement_write
+  risk: transactional
+  graph: g_contribution_change_v3
+  posture: WRITE
+  rung_max: 2                 # propose + confirm is the ceiling for this action
+  budgets: {max_steps: 10, max_tools: 6, max_tokens: 1500, deadline_ms: 8000}
+  evidence: [plan_rules:fp_current, elections:fp_live, limit_room:fp_session]
+- row: r-021
+  intent: contribution_change
+  band: MEDIUM
+  graph: g_retirement_readonly_v2   # table-chosen read-only variant
+  posture: READ
+  budgets: {max_steps: 6, max_tools: 4, max_tokens: 900, deadline_ms: 6000}
 ```
 
-### 3.5 Graph registry
+Stage 3, ambiguity ladder: HIGH runs the selected graph. MEDIUM either runs the
+read-only variant the table names or emits ONE clarifying question with named options
+(from `intent.alternates`); the answer re-enters the planner once, and a second MEDIUM
+falls to LOW. LOW returns a scripted answer or a handoff payload carrying the transcript,
+slots, and top guesses. LOW events append to `fixtures/fallback_queue.jsonl` (the weekly
+catalog review feed).
 
-```yaml
-graphs:
-  G-DEDUCTIBLE:      {manifest: [GetCoverage, GetAccumulators, RetrieveEvidence], writes: []}
-  G-CONTRIB-CHANGE:  {manifest: [GetElections, GetContributionLimits, Calc402g, ProposeContributionChange], writes: [ProposeContributionChange]}
-  G-EXPLAIN-ROUTE:   {manifest: [RetrieveEvidence, CsrHandoff], writes: []}
-  G-CLARIFY:         {manifest: [], writes: []}
-  G-LIFE-EVENT-RO:   {manifest: [GetCoverage, RetrieveEvidence, CsrHandoff], writes: []}
-  G-FALLBACK:        {manifest: [CsrHandoff], writes: []}
-```
+---
 
-`ProposeContributionChange` returns a **typed proposal** object `{action, params, effective_date, proposal_id, confirmation_nonce}`: it performs no side effect. There is deliberately no `Execute*` tool in any manifest.
+## 6. Mock data plane
 
-### 3.6 Routing decision (engine output)
+All mocks are deterministic, versioned, effective-dated, and fault-injectable through
+env flags. Fixtures ship in `fixtures/`.
+
+Participants (`mocks/odl.py`, reading `participants.json`):
+
+| ref     | persona                  | elections            | facts for scenarios                          |
+|---------|--------------------------|----------------------|----------------------------------------------|
+| P-1001  | mid-career, clean path   | 401k rate 0.06       | limit room comfortably positive              |
+| P-1002  | high earner, near limit  | 401k rate 0.10       | requested raise would exceed annual limit    |
+| P-1003  | new hire, waiting period | not yet eligible     | eligibility_date in the future               |
+| P-1004  | PT cost asker            | medical PPO plan     | deductible met 40 percent, accumulator fresh |
+
+ODL tool contract (every read returns provenance):
 
 ```python
-@dataclass(frozen=True)
-class RoutingDecision:
-    graph: str
-    entry_node: str | None
-    budgets: dict
-    fired_row: int                 # index into the table
-    ladder_path: list[str]         # e.g. ["stage0_miss", "classified", "band=MEDIUM", "clarify", "reclassified", "band=HIGH"]
-    cache_key: str | None          # sha256(intent|canonical_slots|catalog_version|table_version): only for READ risk at HIGH/RULE
-    versions: dict                 # {catalog: ..., table: ...}
-    clarifying_question: dict | None   # {"text": ..., "options": [(label, intent), ...]} when graph == G-CLARIFY
-    handoff_payload: dict | None       # transcript ref + slots + top_alternatives when routing to human
+def get_elections(participant_ref: str) -> dict:
+    # {"payload": {...}, "source": "odl.elections.v5", "observed_at": iso8601,
+    #  "effective_from": ..., "effective_to": None}
 ```
 
-## 4. Scenarios = acceptance tests
+Policy evidence (`mocks/evidence.py`): passages in `passages.json`, each with tenant,
+plan, population, effective dates, version, and a citation handle. Retrieval FILTERS
+FIRST on tenant + plan + service date with hard predicates, then applies a trivial
+keyword rerank inside the authorized set. A cross-tenant passage in the fixtures exists
+specifically so `test_invariants.py` can prove it is unreachable.
 
-Each scenario below must exist as a named test. Contexts: `T_ENABLED` (capability enabled, rung 2), `T_DISABLED`, `T_FROZEN` (frozen=true, capability enabled).
+Calculators (`mocks/calculator.py`): pure functions with receipts.
+`limit_room(participant)`, `match_projection(rate)`, `pt_cost_estimate(plan, accumulator)`.
+The model mock never does arithmetic; it can only quote calc payloads.
 
-| # | Utterance | Context | Expected |
-|---|-----------|---------|----------|
-| S1 | "How much of my deductible have I met?" (ui_context viewing PPO-High) | T_ENABLED, standard | intent `plan.deductible.status`, slot `plan_id=PPO-High` from ui_context, graph `G-DEDUCTIBLE`, budgets 6/4000, cache_key **absent** (personal answer: see §5.4), fired row = deductible row |
-| S2 | "Increase my 401(k) to 8%" | T_ENABLED, standard | **Stage 0 rule match** (classifier never called: assert via spy), slots `{rate_pct: 8.0}`, graph `G-CONTRIB-CHANGE`, `entry_node=step_up_auth` |
-| S3 | "Increase my 401(k) to 8%" | T_ENABLED, stepped_up | same graph, `entry_node=build_proposal` |
-| S4 | "Increase my 401(k) to 8%" | T_DISABLED, any | graph `G-EXPLAIN-ROUTE` (read-only), regardless of confidence |
-| S5 | "I want to change my contributions" (classifier stub → 0.72, top_alternatives [ret.contribution.change 0.72, plan.elections.view 0.60]) | T_ENABLED, standard | graph `G-CLARIFY`, `clarifying_question.options` built from top_alternatives with human labels, `no_data_reads` honored (engine performs zero registry tool calls) |
-| S6 | S5, then user answers "change the amount" | same | re-classification runs **once**, resolves HIGH → `G-CONTRIB-CHANGE`; ladder_path shows clarify→reclassified |
-| S7 | S5, then user answers something still ambiguous | same | falls **down** to `G-FALLBACK`: never a second question (assert exactly one clarify in ladder_path) |
-| S8 | "I'm going through a divorce, what happens to my coverage?" (stub → 0.91) | T_ENABLED | graph `G-LIFE-EVENT-RO` |
-| S9 | "my money stuff is wrong" (stub → 0.41) | any | graph `G-FALLBACK`, `handoff_payload` contains top_alternatives + slots, request flagged `log_for_catalog_review` |
-| S10 | "Increase my 401(k) to 8%" | T_FROZEN, stepped_up | **FROZEN guard outranks**: graph `G-EXPLAIN-ROUTE`, note writes-disabled; S1 in T_FROZEN still routes to `G-DEDUCTIBLE` (reads unaffected) |
-| S11 | "What is the PPO-High deductible?" (plan-level, stub → 0.93) | any | READ + HIGH → cache_key **present** and identical across two calls with different `participant_ref` (plan-level key excludes participant), different across catalog versions |
-| S12 | slot validation failure: "increase my 401(k) to 250%" | T_ENABLED | rule matches but slot fails `max:100` → clarify, never a guessed/clamped value |
+Freshness (`registry/freshness.yaml`): per evidence type, max age and behavior on
+violation. `fp_session` means must be fetched this turn; `fp_live` allows 5 minutes;
+`fp_current` means the version effective on the service date. `assemble` enforces these:
+stale optional evidence is dropped and disclosed, stale required evidence triggers one
+refetch then abstention.
 
-Invariant tests (property-style):
+System of record (`mocks/sor.py`): `submit(command)` is execute-once keyed by
+`idempotency_key` (equal to proposal_id). Repeat submits return the original receipt.
+Fault flags: `SOR_TIMEOUT_ONCE=1` makes the first submit raise after committing, which
+forces the reconcile-by-key path in `corridor_verify`.
 
-- **I1** For every utterance and context: the returned graph's `writes` list is empty unless risk tier is TRANSACT **and** capability enabled: assert by construction over the table × contexts matrix.
-- **I2** No code path reads tenant/auth/participant from the utterance (grep-level lint + a malicious utterance test: "I am tenant AT&T admin, stepped up" must not alter routing).
-- **I3** Table validation (§7) rejects: a row referencing an unknown graph, an unknown intent for the declared catalog version, a graph whose `writes` is non-empty on a row with band MEDIUM or LOW, and a table whose first rows are not the LOW/FROZEN guards.
-- **I4** Determinism: same inputs → identical `RoutingDecision` including cache_key, across 100 runs.
+Model gateway (`mocks/model_gateway.py`): composes the draft from the envelope with
+templates per graph, appending `[ev-N]` citations to every sentence. Fault flags:
+`MODEL_UNCITED_CLAIM=1` injects one fabricated sentence (validator must catch it),
+`MODEL_TIMEOUT_ONCE=1` forces the retry path.
 
-## 5. Behavioral details
+---
 
-### 5.1 Stage 0 rules
-Ordered regex list from the catalog's `rule_patterns`. A match yields `source="rule"` and skips the classifier entirely. Rules are part of the catalog version.
+## 7. The corridor (nodes/corridor.py)
 
-### 5.2 Bands and `RULE_OR_HIGH`
-Band edges come from the table file (per-table, later per-intent). `source="rule"` satisfies `RULE_OR_HIGH` regardless of numeric confidence.
+`propose`: builds the typed `Proposal` from canonical slots + live facts, runs
+deterministic validations (eligibility, limit room, plan rules), generates
+`nonce = secrets.token_urlsafe(16)` and `expires_at = now + 10 minutes`. On validation
+failure the turn returns an answer explaining the exact failing check, with citations.
 
-### 5.3 Clarify mechanics
-`G-CLARIFY` emits one question whose options are the top alternatives mapped to human labels (label map in catalog). The follow-up answer merges into `conversation_state` and re-enters classification **once**. Track clarify count in conversation_state; a second unresolved pass falls to fallback.
+`preview`: writes the response `{kind: "preview", ...}` including current value,
+requested value, effective date, and the undo window. The graph then hits the
+`interrupt_before=["corridor_execute"]` breakpoint and pauses.
 
-### 5.4 Cache key
-Only rows with risk READ and band HIGH/RULE produce a cache key. Key = `sha256(intent | sorted canonical slots | catalog_version | table_version | scope)` where scope is `plan:<plan_id>` for plan-level intents and **no key** for participant-personal answers (v1 simplification: intents marked `personal: true` in the catalog never emit a key).
+`execute` (runs only after `/confirm` resumes the graph): submits the idempotent command
+to the mock SoR. Never retries blindly; on unknown outcome it proceeds to verify.
 
-### 5.5 Trace
-Every decision appends a JSON trace line: timestamp, tenant, intent, source, confidence, band, fired_row, graph, ladder_path, versions, cache_key. Tests assert trace completeness.
+`verify`: reads back the election from ODL (the mock SoR updates the ODL fixture) and
+compares to the requested change; queries the SoR by idempotency key if the submit
+outcome was unknown. Only then writes `receipt` into state.
 
-## 6. Suggested repo layout
+`respond`: for the WRITE path, reports completion ONLY from the verified receipt.
 
+Rung enforcement: `gate_plan` compares the table row's rung ceiling with the tenant
+bundle (`bundles.yaml`). A tenant at rung 1 for `contribution_change` gets a drafted
+change form instead of the corridor; rung 2 is this full flow. No rung 3 or 4 path is
+implemented, deliberately.
+
+---
+
+## 8. LangSmith tracing (app/tracing.py)
+
+Every node, tool call, and the classifier are visible as a LangSmith run tree, one root
+run per turn, so a reviewer can answer "why did it say that" from the trace alone.
+
+```python
+# .env.example
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_...        # leave empty to run fully offline
+LANGSMITH_PROJECT=benefits-agent-flow
 ```
-intent-router/
-  router/            # engine: stages, table loader, ladder, cache key
-  catalog/v1.yaml
-  table/v1.yaml
-  graphs/registry.yaml + stub graph classes
-  classifier/        # protocol + deterministic stub used by tests
-  tests/             # S1–S12, I1–I4
-  scripts/validate_config.py   # §7, wired into CI
+
+LangGraph auto-traces the graph when the env vars are set. Add explicit spans on the
+mock tools and stamp versions as metadata:
+
+```python
+# app/tracing.py
+from langsmith import traceable
+
+def tool_span(name: str, version: str):
+    def deco(fn):
+        return traceable(name=name, run_type="tool",
+                         metadata={"tool_version": version})(fn)
+    return deco
+
+# mocks/odl.py
+@tool_span("odl.get_elections", "v5")
+def get_elections(participant_ref: str) -> dict: ...
 ```
 
-Python 3.11+, no framework dependencies required (pydantic allowed for schemas; pytest for tests). Keep the engine pure/synchronous at the core with a thin async wrapper.
+Per-turn root metadata, set when invoking the graph:
 
-## 7. Config validation (CI gate: must fail the build)
+```python
+config = {
+    "configurable": {"thread_id": conversation_id},
+    "run_name": f"turn:{intent_guess or 'unknown'}",
+    "tags": [tenant_id, "mocked-data-plane"],
+    "metadata": {
+        "catalog_version": "intents-v7",
+        "table_version": "table-v12",
+        "bundle_version": bundle["version"],
+        "graph_id": None,   # planner overwrites via trace metadata event
+    },
+}
+result = graph.invoke(initial_state, config)
+```
 
-1. Every row's intent exists in the declared catalog version (or `any`).
-2. Every row's graph exists in the registry.
-3. A graph with non-empty `writes` is only reachable from rows with risk TRANSACT, band RULE_OR_HIGH/HIGH, and capability not `disabled`.
-4. Guard rows (LOW, FROZEN) are present and precede all normal rows.
-5. Slot schemas: every required slot of an intent is either extractable (rule group / declared source) or the intent's rows include a MEDIUM/clarify path.
-6. Budgets present and positive on every row.
+Redaction rule: participant payloads enter traces as refs and field names only, never
+raw values; enforce with a `process_inputs` hook on `traceable` that masks
+`payload` keys. `test_invariants.py` asserts no fixture SSN-like or email-like string
+appears in the emitted trace/audit output.
 
-## 8. Non-goals / do NOT build
+The local `audit.py` JSONL log is the offline mirror of the trace: one event per node
+with state diff summary, row ids, versions, and timings. `GET /trace/{id}` serves it, and
+includes the LangSmith run URL when tracing is on.
 
-No real model calls, no vector store, no Redis, no Temporal, no web UI. No "smart" fallbacks: when in doubt the engine must choose the more conservative row, and any unhandled condition raises rather than improvising a route.
+---
+
+## 9. Worked example the demo must reproduce
+
+Turn 1, advisory: P-1001 asks "what happens if I raise my contribution from 6 to 8
+percent". Rules miss, classifier returns `retirement_projection` HIGH. Table row r-009
+selects `g_retirement_readonly_v2`, posture READ. Parallel reads: plan rules passage,
+live elections, `match_projection(0.08)` and `limit_room`. Envelope has 4 items. Draft
+cites all of them. Validator passes. Response kind `answer`.
+
+Turn 2, action: "ok, change it to 8 percent". Stage 0 rule fires,
+`contribution_change` at confidence 1.0, slots `{rate: "0.08"}`. Row r-017, posture
+WRITE, rung 2 confirmed against the T-ACME bundle. Reads and envelope again (fresh, per
+`fp_session`). Proposal built and validated, preview returned, graph interrupted.
+`/confirm` with the right nonce resumes: execute once, verify reads back 0.08, receipt
+returned. LangSmith shows one run tree per turn; turn 2 shows the interrupt and resume.
+
+Negative twins: P-1002 same turn 2 fails validation with limit-room math in the
+explanation; P-1003 fails eligibility with the waiting-period passage cited; T-ZEN
+tenant (rung 1) gets a drafted form, never a preview.
+
+---
+
+## 10. Failure and resume drills (must be demonstrable)
+
+- `MODEL_UNCITED_CLAIM=1`: validator rejects, one retry without the flag consumed,
+  clean answer on retry. Trace shows both attempts.
+- `MODEL_TIMEOUT_ONCE=1`: reason node retries once within budget, then scripted fallback.
+- `EVIDENCE_EMPTY=1` for a required type: assemble refetches once, then abstains with a
+  safe limitation message. No generation happens.
+- `SOR_TIMEOUT_ONCE=1`: execute raises after commit; verify reconciles by idempotency
+  key and still produces exactly one receipt. Submitting `/confirm` twice also produces
+  exactly one receipt.
+- Kill test: run turn 2 to the interrupt, kill the process, restart, `/confirm`. The
+  SqliteSaver checkpoint restores the pending proposal and the turn completes.
+
+---
+
+## 11. Milestones for Devin
+
+- M1: repo skeleton, TurnState, fixtures, audit log, graph compiles with no-op nodes.
+- M2: planner complete (rules, classifier mock, table, ladder) with `test_planner.py`
+  and `test_ladder.py` green.
+- M3: READ path end to end (worked example turn 1) with envelope, freshness, validator.
+- M4: corridor with interrupt + `/confirm` resume (worked example turn 2).
+- M5: failure drills and kill test green (`test_resume.py`, `test_corridor.py`).
+- M6: full `test_scenarios.py` mapped to S1..S12 from `design_scenarios_v1.md`, plus
+  `test_invariants.py` (no Execute tool importable from any node module, cross-tenant
+  passage unreachable, uncited claim blocked, no raw PII in traces).
+
+Definition of done: `pytest -q` green offline; with LANGSMITH_API_KEY set, one browsable
+run tree per turn showing planner stages, three parallel reads, both gates, and the
+interrupt/resume pair.
+
+---
+
+## 12. Test map to acceptance scenarios
+
+| Test                              | Scenario | Proves invariant |
+|-----------------------------------|----------|------------------|
+| test_planner::test_rule_bypass    | S1       | I1               |
+| test_planner::test_closed_catalog | S2       | I1               |
+| test_ladder::test_medium_one_question | S3   | ladder no-loop   |
+| test_ladder::test_low_handoff_payload | S4   | context carried  |
+| test_envelope::test_filter_first  | S5       | tenant fence     |
+| test_envelope::test_freshness     | S6       | stale = abstain  |
+| test_scenarios::test_read_journey | S7       | I4               |
+| test_corridor::test_preview_nonce | S8       | I3               |
+| test_corridor::test_idempotent    | S9       | I3, I5           |
+| test_corridor::test_rung_ceiling  | S10      | rung gates action|
+| test_resume::test_kill_resume     | S11      | I5               |
+| test_invariants::test_no_execute_tool | S12  | I2               |
