@@ -57,7 +57,8 @@ def validate(state: TurnState) -> dict:
 
 
 def run(state: TurnState) -> dict:
-    if state.validation and state.validation.get("reasons") == ["model_timeout"]:
+    timed_out = state.validation and state.validation.get("reasons") == ["model_timeout"]
+    if timed_out and not state.draft:  # nothing composed yet; a later draft is still validated
         node_event(state, "gate_output", passed=False, reasons=["model_timeout"])
         return {}
     result = validate(state)

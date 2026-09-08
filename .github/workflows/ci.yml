@@ -42,3 +42,17 @@ jobs:
         run: python scripts/validate_config.py
       - name: Tests
         run: python -m pytest -q
+
+  frontier-escalation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: benefits-agent-flow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-escalation.txt
+      - name: Tests (deepagents harness, scripted model, no provider)
+        run: python -m pytest -q

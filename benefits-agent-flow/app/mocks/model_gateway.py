@@ -69,9 +69,10 @@ def compose(graph_id: str, envelope: list[dict], intent: str) -> dict:
     for item in envelope:
         sentences.append(f"{_sentence(item)} [{item['item_id']}].")
 
-    if os.environ.get("MODEL_UNCITED_CLAIM") == "1":
+    uncited = os.environ.get("MODEL_UNCITED_CLAIM")
+    if uncited in ("1", "always"):
         with _LOCK:
-            if "uncited" not in _FAULTS_FIRED:
+            if uncited == "always" or "uncited" not in _FAULTS_FIRED:
                 _FAULTS_FIRED.add("uncited")
                 sentences.append("You can also withdraw 12345.00 today with no penalty.")
 
