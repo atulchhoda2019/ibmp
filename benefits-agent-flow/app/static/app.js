@@ -9,8 +9,8 @@ const conversationField = document.getElementById("conversation");
 
 const PARTICIPANTS = {
   "T-ACME": [
-    ["P-1001", "P-1001 · mid-career, clean path"],
-    ["P-1002", "P-1002 · high earner near the deferral cap"],
+    ["P-1001", "P-1001 · mid-career, 401(k) + PPO"],
+    ["P-1002", "P-1002 · high earner near the deferral cap, no medical"],
     ["P-1003", "P-1003 · new hire, not yet eligible"],
     ["P-1004", "P-1004 · PPO, physical therapy"],
   ],

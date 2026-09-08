@@ -10,6 +10,7 @@ Off unless ESCALATION_BACKEND=deepagents, so CI and the offline runtime never re
 import importlib.util
 import json
 import os
+import re
 from typing import Any, Callable
 
 ADVISORY_TOOLS = ("list_evidence", "read_evidence_item")
@@ -103,13 +104,26 @@ def _budget(items: int) -> int:
 # A shared or free endpoint drops calls under load, and the ladder only offers one frontier
 # turn, so a dropped call would spend it. Anything else - a refusal, a bad request, an
 # exhausted step budget - is the provider's answer and goes straight to the human.
-_TRANSIENT = ("429", "502", "503", "504", "ratelimit", "timeout", "connection",
-              "overload", "temporarily")
+_TRANSIENT_STATUS = re.compile(r"\b(429|500|502|503|504)\b")
+_TRANSIENT_WORDS = ("ratelimit", "rate limit", "timeout", "timed out", "connection",
+                    "overload", "temporarily", "unavailable")
+
+# A provider error can quote the request that caused it, so nothing goes into a trace
+# verbatim: a key, a bearer token or an address in the text would outlive the turn.
+_SECRETS = re.compile(
+    r"(sk-[A-Za-z0-9._\-]+|Bearer\s+\S+|[\w.+-]+@[\w-]+\.[\w.]+)", re.IGNORECASE
+)
 
 
 def _transient(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
-    return any(marker in text for marker in _TRANSIENT)
+    if _TRANSIENT_STATUS.search(text):
+        return True
+    return any(word in text for word in _TRANSIENT_WORDS)
+
+
+def _detail(exc: Exception) -> str:
+    return _SECRETS.sub("<redacted>", str(exc))[:200]
 
 
 def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str, Any]:
@@ -139,7 +153,7 @@ def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str,
         except Exception as exc:  # a frontier failure falls through to the human handoff
             if attempt + 1 < attempts and _transient(exc):
                 continue
-            return {"error": type(exc).__name__, "detail": str(exc)[:200]}
+            return {"error": type(exc).__name__, "detail": _detail(exc)}
     messages = result.get("messages") or []
     text = messages[-1].content if messages else ""
     if isinstance(text, list):  # content blocks

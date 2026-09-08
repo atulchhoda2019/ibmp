@@ -112,6 +112,28 @@ def test_a_dropped_call_is_retried_and_a_refusal_is_not(monkeypatch):
     assert refusing.script == []  # spent once, then handed to the human
 
 
+def test_a_plain_500_is_retried_and_a_501_is_not(monkeypatch):
+    monkeypatch.setenv("ESCALATION_ATTEMPTS", "2")
+    flaky = ScriptedModel(script=[
+        ValueError("{'message': 'Internal Server Error', 'code': 500}"),
+        AIMessage(content="Your 401k balance is 412300.00 [ev-1]."),
+    ])
+    assert escalation.compose("balance", ENVELOPE, model=flaky)["text"].endswith("[ev-1].")
+
+    unsupported = ScriptedModel(script=[ValueError("{'message': 'Not Implemented', 'code': 501}")])
+    assert escalation.compose("balance", ENVELOPE, model=unsupported)["error"] == "ValueError"
+    assert unsupported.script == []
+
+
+def test_a_provider_error_reaches_the_trace_without_its_credentials():
+    leaky = ScriptedModel(script=[ValueError(
+        "401 unauthorized for Bearer sk-or-v1-abcdef123 on behalf of casey.rivera@example.com"
+    )])
+    detail = escalation.compose("balance", ENVELOPE, model=leaky)["detail"]
+    assert "sk-or-v1-abcdef123" not in detail and "casey.rivera@example.com" not in detail
+    assert "401 unauthorized" in detail
+
+
 def test_a_local_server_needs_no_key(monkeypatch):
     monkeypatch.setenv("ESCALATION_BASE_URL", "http://127.0.0.1:11434/v1")
     monkeypatch.delenv("ESCALATION_API_KEY", raising=False)
