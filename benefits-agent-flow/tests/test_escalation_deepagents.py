@@ -36,7 +36,10 @@ class ScriptedModel(BaseChatModel):
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         self.seen.append(messages)
-        return ChatResult(generations=[ChatGeneration(message=self.script.pop(0))])
+        turn = self.script.pop(0)
+        if isinstance(turn, Exception):
+            raise turn
+        return ChatResult(generations=[ChatGeneration(message=turn)])
 
 
 def call(name: str, args: dict, id_: str) -> AIMessage:
@@ -75,7 +78,7 @@ def test_the_scratchpad_filesystem_refuses_writes():
 def test_a_model_that_never_answers_is_bounded_by_the_step_budget(monkeypatch):
     monkeypatch.setenv("ESCALATION_MAX_STEPS", "4")
     model = ScriptedModel(script=[call("list_evidence", {}, str(i)) for i in range(20)])
-    assert escalation.compose("loop", ENVELOPE, model=model) == {"error": "GraphRecursionError"}
+    assert escalation.compose("loop", ENVELOPE, model=model)["error"] == "GraphRecursionError"
 
 
 def test_any_openai_compatible_server_can_host_the_frontier(monkeypatch):
@@ -85,6 +88,50 @@ def test_any_openai_compatible_server_can_host_the_frontier(monkeypatch):
     assert model.model_name == "llama-3.3-70b-versatile"
     assert str(model.openai_api_base) == "https://api.groq.com/openai/v1"
     assert model.openai_api_key.get_secret_value() == "key-not-real"
+
+
+def test_a_slug_with_a_slash_survives_the_compat_prefix(monkeypatch):
+    monkeypatch.setenv("ESCALATION_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("ESCALATION_API_KEY", "key-not-real")
+    model = escalation.resolve_model("compat:nvidia/nemotron-3-ultra-550b-a55b:free")
+    assert model.model_name == "nvidia/nemotron-3-ultra-550b-a55b:free"
+
+
+def test_a_dropped_call_is_retried_and_a_refusal_is_not(monkeypatch):
+    monkeypatch.setenv("ESCALATION_ATTEMPTS", "2")
+    flaky = ScriptedModel(script=[
+        ValueError("{'message': 'Upstream error: Service temporarily overloaded', 'code': 502}"),
+        call("read_evidence_item", {"item_id": "ev-1"}, "1"),
+        AIMessage(content="Your 401k balance is 412300.00 [ev-1]."),
+    ])
+    assert escalation.compose("balance", ENVELOPE, model=flaky)["text"].endswith("[ev-1].")
+
+    refusing = ScriptedModel(script=[ValueError("{'message': 'invalid model', 'code': 400}")])
+    result = escalation.compose("balance", ENVELOPE, model=refusing)
+    assert result["error"] == "ValueError" and "invalid model" in result["detail"]
+    assert refusing.script == []  # spent once, then handed to the human
+
+
+def test_a_plain_500_is_retried_and_a_501_is_not(monkeypatch):
+    monkeypatch.setenv("ESCALATION_ATTEMPTS", "2")
+    flaky = ScriptedModel(script=[
+        ValueError("{'message': 'Internal Server Error', 'code': 500}"),
+        AIMessage(content="Your 401k balance is 412300.00 [ev-1]."),
+    ])
+    assert escalation.compose("balance", ENVELOPE, model=flaky)["text"].endswith("[ev-1].")
+
+    unsupported = ScriptedModel(script=[ValueError("{'message': 'Not Implemented', 'code': 501}")])
+    assert escalation.compose("balance", ENVELOPE, model=unsupported)["error"] == "ValueError"
+    assert unsupported.script == []
+
+
+def test_a_provider_error_reaches_the_trace_without_its_credentials():
+    leaky = ScriptedModel(script=[ValueError(
+        "401 unauthorized for Bearer sk-or-v1-abcdef123 on behalf of casey.rivera@example.com"
+    )])
+    detail = escalation.compose("balance", ENVELOPE, model=leaky)["detail"]
+    assert "sk-or-v1-abcdef123" not in detail and "casey.rivera@example.com" not in detail
+    assert "401 unauthorized" in detail
 
 
 def test_a_local_server_needs_no_key(monkeypatch):

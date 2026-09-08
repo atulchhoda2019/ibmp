@@ -89,8 +89,15 @@ def test_a_balance_answer_states_the_balance(client):
     assert "412300.00" in answer["text"]
 
 
-def test_absent_coverage_says_so_instead_of_reporting_no_values(client):
+def test_a_deductible_answer_states_the_accumulator(client):
     answer = client.post("/turn", json=body("how much of my deductible have i met")).json()
+    assert answer["kind"] == "answer"
+    assert "1450.00" in answer["text"] and answer["citations"]
+
+
+def test_absent_coverage_says_so_instead_of_reporting_no_values(client):
+    answer = client.post("/turn", json=body(
+        "how much of my deductible have i met", participant_ref="P-1002")).json()
     assert answer["kind"] == "answer"
     assert "coverage on file" in answer["text"]
     assert answer["limitation"].startswith("not applicable to this participant")

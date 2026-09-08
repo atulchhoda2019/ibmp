@@ -4,11 +4,11 @@
     "persona": "mid-career, clean path",
     "email": "casey.rivera@example.com",
     "plan_id": "PL-401K-ACME",
-    "medical_plan_id": null,
+    "medical_plan_id": "PL-PPO-ACME",
     "eligibility_date": "2019-04-01",
     "elections": {"401k_rate": "0.06", "annual_compensation": "180000"},
     "balances": {"401k": "412300.00"},
-    "accumulators": {},
+    "accumulators": {"deductible_total": "2000.00", "deductible_met": "1450.00", "coinsurance_rate": "0.20"},
     "ytd_deferral": "5400.00",
     "beneficiaries": ["primary: spouse 100%"]
   },

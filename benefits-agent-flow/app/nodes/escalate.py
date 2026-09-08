@@ -11,7 +11,8 @@ def run(state: TurnState) -> dict:
     result = escalation.compose(question, envelope)
     retries = {**state.retries, "escalate": attempts + 1}
     if "error" in result:
-        node_event(state, "escalate", failed=True, reason=result["error"])
+        node_event(state, "escalate", failed=True, reason=result["error"],
+                   detail=result.get("detail", ""))
         return {"retries": retries}
     node_event(state, "escalate", chars=len(result["text"]), model=result["model"])
     return {"draft": result["text"], "retries": retries}
