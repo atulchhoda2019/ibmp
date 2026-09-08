@@ -15,7 +15,6 @@ from typing import Any, Callable
 ADVISORY_TOOLS = ("list_evidence", "read_evidence_item")
 
 DEFAULT_MODEL = "openai:gpt-4.1"
-GITHUB_MODELS_URL = "https://models.github.ai/inference"
 
 SYSTEM_PROMPT = """You are a benefits answer composer working under a governance gate.
 
@@ -75,24 +74,19 @@ def _tools(envelope: list[dict]) -> list[Callable]:
 def resolve_model(spec: str | None = None) -> Any:
     """Build the frontier chat model from ESCALATION_MODEL. It must support tool calling.
 
-      openai:gpt-4.1                       any langchain provider string
-      github:meta/Llama-3.3-70B-Instruct   GitHub Models, PAT with Models: read
-      compat:qwen3:8b                      any OpenAI-compatible endpoint (Ollama, Groq,
-                                           vLLM) addressed by ESCALATION_BASE_URL
+      openai:gpt-4.1    any langchain provider string, keyed by that provider's env var
+      compat:qwen3:8b   any OpenAI-compatible endpoint (Ollama, Groq, OpenRouter, vLLM),
+                        addressed by ESCALATION_BASE_URL and keyed by ESCALATION_API_KEY
     """
     from langchain.chat_models import init_chat_model
 
     spec = spec or os.environ.get("ESCALATION_MODEL", DEFAULT_MODEL)
     base_url = os.environ.get("ESCALATION_BASE_URL")
     api_key = os.environ.get("ESCALATION_API_KEY")
-    if spec.startswith("github:"):
-        spec, base_url = spec.split(":", 1)[1], base_url or GITHUB_MODELS_URL
-        api_key = api_key or os.environ.get("GITHUB_MODELS_TOKEN")
-    elif spec.startswith("compat:"):
-        spec = spec.split(":", 1)[1]
-    else:
+    if not spec.startswith("compat:"):
         return init_chat_model(spec)
-    # Both routes speak the OpenAI wire format, so the OpenAI client drives them.
+    spec = spec.split(":", 1)[1]
+    # An OpenAI-compatible server speaks the OpenAI wire format, so that client drives it.
     return init_chat_model(spec, model_provider="openai", base_url=base_url,
                            api_key=api_key or "unused", temperature=0)
 
