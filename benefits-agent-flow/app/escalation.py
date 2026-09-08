@@ -91,6 +91,15 @@ def resolve_model(spec: str | None = None) -> Any:
                            api_key=api_key or "unused", temperature=0)
 
 
+def _budget(items: int) -> int:
+    """Steps the loop may take: enough to read every item one call at a time, and answer.
+
+    A small model reads sequentially — list_evidence, then one read_evidence_item per item,
+    each costing a model step and a tool step — so a flat cap starves a large envelope.
+    """
+    return max(int(os.environ.get("ESCALATION_MAX_STEPS", "12")), 2 * items + 6)
+
+
 def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str, Any]:
     """Run the frontier agent over the envelope. Returns {"text", "model"} or {"error"}.
 
@@ -110,7 +119,7 @@ def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str,
     try:
         result = agent.invoke(
             {"messages": [{"role": "user", "content": question}]},
-            {"recursion_limit": int(os.environ.get("ESCALATION_MAX_STEPS", "12"))},
+            {"recursion_limit": _budget(len(envelope))},
         )
     except Exception as exc:  # a frontier failure falls through to the human handoff
         return {"error": type(exc).__name__}

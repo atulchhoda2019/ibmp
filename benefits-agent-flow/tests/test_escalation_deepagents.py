@@ -93,3 +93,15 @@ def test_a_local_server_needs_no_key(monkeypatch):
     model = escalation.resolve_model("compat:qwen3:8b")
     assert model.model_name == "qwen3:8b"
     assert str(model.openai_api_base) == "http://127.0.0.1:11434/v1"
+
+
+def test_a_sequential_reader_can_finish_a_full_envelope():
+    """One tool call per turn over six items must not run out of budget."""
+    envelope = [dict(ENVELOPE[0], item_id=f"ev-{i}") for i in range(1, 7)]
+    model = ScriptedModel(script=(
+        [call("list_evidence", {}, "0")]
+        + [call("read_evidence_item", {"item_id": item["item_id"]}, str(i))
+           for i, item in enumerate(envelope, start=1)]
+        + [AIMessage(content="Your 401k balance is 412300.00 [ev-1].")]
+    ))
+    assert escalation.compose("what is my balance", envelope, model=model)["text"].endswith("[ev-1].")
