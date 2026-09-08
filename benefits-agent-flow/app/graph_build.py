@@ -9,7 +9,8 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
-from app.nodes import (assemble, corridor, gate_output, gate_plan, ingress, planner,
+from app import escalation
+from app.nodes import (assemble, corridor, escalate, gate_output, gate_plan, ingress, planner,
                        read_calc, read_evidence, read_facts, reason, respond)
 from app.state import TurnState
 
@@ -31,10 +32,22 @@ def route_after_gate_output(state: TurnState) -> str:
     if not (state.validation or {}).get("passed"):
         if state.retries.get("reason", 0) < 2:
             return "reason"             # one bounded retry
-        return "respond"                # scripted fallback
+        if escalates(state):
+            return "escalate"           # then the frontier, once
+        return "respond"                # scripted fallback, i.e. the human
     if state.plan.posture == "WRITE":
         return "corridor_propose"
     return "respond"
+
+
+def escalates(state: TurnState) -> bool:
+    """Advisory reads only: a WRITE turn goes to the human rather than to a frontier model."""
+    return (
+        state.retries.get("escalate", 0) == 0
+        and state.plan.posture == "READ"
+        and bool(state.envelope)
+        and escalation.available()
+    )
 
 
 def route_after_propose(state: TurnState) -> str:
@@ -63,6 +76,7 @@ def build_graph(checkpoint_path: str | None = "checkpoints.sqlite"):
     g.add_node("assemble", assemble.run)
     g.add_node("reason", reason.run)
     g.add_node("gate_output", gate_output.run)
+    g.add_node("escalate", escalate.run)
     g.add_node("corridor_propose", corridor.propose)
     g.add_node("corridor_preview", corridor.preview)
     g.add_node("corridor_wait_confirmation", corridor.wait_confirmation)
@@ -83,8 +97,10 @@ def build_graph(checkpoint_path: str | None = "checkpoints.sqlite"):
     g.add_edge("reason", "gate_output")
     g.add_conditional_edges("gate_output", route_after_gate_output,
                             {"reason": "reason",
+                             "escalate": "escalate",
                              "corridor_propose": "corridor_propose",
                              "respond": "respond"})
+    g.add_edge("escalate", "gate_output")
     g.add_conditional_edges("corridor_propose", route_after_propose,
                             {"corridor_preview": "corridor_preview", "respond": "respond"})
     g.add_conditional_edges("corridor_preview", route_after_preview,

@@ -1,0 +1,5 @@
+# Frontier escalation only (ESCALATION_BACKEND=deepagents). Needs Python 3.11+, unlike the
+# rest of the runtime, and reaches a model provider, so it is deliberately not in CI.
+-r requirements.txt
+deepagents==0.7.9
+langchain-openai>=1.6,<2
