@@ -99,6 +99,20 @@ ESCALATION_BACKEND=deepagents ESCALATION_MODEL=openai:gpt-4.1 OPENAI_API_KEY=sk-
 | `openai:gpt-4.1`, `anthropic:claude-...` | the provider's own | that provider's env var |
 | `compat:qwen3:8b` + `ESCALATION_BASE_URL` | any OpenAI-compatible server: Ollama, Groq, OpenRouter, vLLM | `ESCALATION_API_KEY`, optional |
 
+An open-weight model on OpenRouter, verified end to end:
+
+```bash
+ESCALATION_BACKEND=deepagents \
+ESCALATION_MODEL=compat:nvidia/nemotron-3-ultra-550b-a55b:free \
+ESCALATION_BASE_URL=https://openrouter.ai/api/v1 \
+ESCALATION_API_KEY=sk-or-... uvicorn app.main:app --port 8200
+```
+
+A shared endpoint drops calls under load, so a call that fails on a rate limit, a timeout or a
+5xx is retried (`ESCALATION_ATTEMPTS`, default 2); any other provider error is recorded with its
+message and handed to the human. OpenRouter's free tier is the flakiest part of this path — a
+paid slug answers first time.
+
 GitHub Models is not an option: it was retired on 2026-07-30 and `models.github.ai` now
 answers 410 with a body that still calls it a temporary brownout.
 

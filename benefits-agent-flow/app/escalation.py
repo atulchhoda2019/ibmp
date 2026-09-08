@@ -100,6 +100,18 @@ def _budget(items: int) -> int:
     return max(int(os.environ.get("ESCALATION_MAX_STEPS", "12")), 2 * items + 6)
 
 
+# A shared or free endpoint drops calls under load, and the ladder only offers one frontier
+# turn, so a dropped call would spend it. Anything else - a refusal, a bad request, an
+# exhausted step budget - is the provider's answer and goes straight to the human.
+_TRANSIENT = ("429", "502", "503", "504", "ratelimit", "timeout", "connection",
+              "overload", "temporarily")
+
+
+def _transient(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(marker in text for marker in _TRANSIENT)
+
+
 def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str, Any]:
     """Run the frontier agent over the envelope. Returns {"text", "model"} or {"error"}.
 
@@ -116,13 +128,18 @@ def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str,
         # keeps only its planning notes in memory and nothing the agent does can persist.
         permissions=[FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")],
     )
-    try:
-        result = agent.invoke(
-            {"messages": [{"role": "user", "content": question}]},
-            {"recursion_limit": _budget(len(envelope))},
-        )
-    except Exception as exc:  # a frontier failure falls through to the human handoff
-        return {"error": type(exc).__name__}
+    attempts = max(int(os.environ.get("ESCALATION_ATTEMPTS", "2")), 1)
+    for attempt in range(attempts):
+        try:
+            result = agent.invoke(
+                {"messages": [{"role": "user", "content": question}]},
+                {"recursion_limit": _budget(len(envelope))},
+            )
+            break
+        except Exception as exc:  # a frontier failure falls through to the human handoff
+            if attempt + 1 < attempts and _transient(exc):
+                continue
+            return {"error": type(exc).__name__, "detail": str(exc)[:200]}
     messages = result.get("messages") or []
     text = messages[-1].content if messages else ""
     if isinstance(text, list):  # content blocks
