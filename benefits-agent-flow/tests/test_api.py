@@ -139,3 +139,10 @@ def test_no_participant_email_reaches_the_trace(client):
     client.post("/turn", json=body("what is my 401k balance right now", conversation))
     trace = client.get(f"/trace/{conversation}").text
     assert "@example.com" not in trace
+
+
+def test_trace_reports_no_langsmith_link_when_tracing_is_off(client):
+    conversation = f"C-{uuid.uuid4().hex[:8]}"
+    client.post("/turn", json=body("what is my 401k balance right now", conversation))
+    trace = client.get(f"/trace/{conversation}").json()
+    assert trace["langsmith_run_url"] is None
