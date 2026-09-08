@@ -76,3 +76,21 @@ def test_a_model_that_never_answers_is_bounded_by_the_step_budget(monkeypatch):
     monkeypatch.setenv("ESCALATION_MAX_STEPS", "4")
     model = ScriptedModel(script=[call("list_evidence", {}, str(i)) for i in range(20)])
     assert escalation.compose("loop", ENVELOPE, model=model) == {"error": "GraphRecursionError"}
+
+
+def test_github_models_is_addressed_as_an_openai_compatible_endpoint(monkeypatch):
+    monkeypatch.setenv("GITHUB_MODELS_TOKEN", "pat-not-real")
+    monkeypatch.delenv("ESCALATION_BASE_URL", raising=False)
+    monkeypatch.delenv("ESCALATION_API_KEY", raising=False)
+    model = escalation.resolve_model("github:meta/Llama-3.3-70B-Instruct")
+    assert model.model_name == "meta/Llama-3.3-70B-Instruct"
+    assert str(model.openai_api_base) == escalation.GITHUB_MODELS_URL
+    assert model.openai_api_key.get_secret_value() == "pat-not-real"
+
+
+def test_any_openai_compatible_server_can_host_the_frontier(monkeypatch):
+    monkeypatch.setenv("ESCALATION_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.delenv("ESCALATION_API_KEY", raising=False)
+    model = escalation.resolve_model("compat:qwen3:8b")
+    assert model.model_name == "qwen3:8b"
+    assert str(model.openai_api_base) == "http://127.0.0.1:11434/v1"
