@@ -77,5 +77,16 @@ resubmit). All four are exercised in `tests/test_invariants.py`.
 
 ## Tracing
 
-Set `LANGSMITH_API_KEY` (and optionally `LANGSMITH_PROJECT`) to send runs to LangSmith; tool spans
-carry their tool version and the payloads go through the same redaction as the audit log.
+Tracing is off unless both `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are set (optionally
+`LANGSMITH_PROJECT`); without them every span is a no-op and nothing leaves the box:
+
+```bash
+LANGSMITH_TRACING=true LANGSMITH_API_KEY=lsv2_... LANGSMITH_PROJECT=benefits-agent-flow \
+  uvicorn app.main:app --port 8200
+```
+
+One root run per turn (`turn:<conversation_id>`, tagged with the tenant, config versions as
+metadata), with every node and tool call as child spans; tool spans carry their tool version and
+payloads go through the same redaction as the audit log. `/trace/{conversation_id}` returns the
+root run URL of the last turn as `langsmith_run_url`, and the chat UI links it above the node
+list.

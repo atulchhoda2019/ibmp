@@ -1,13 +1,17 @@
 """LangSmith helpers. With LANGSMITH_TRACING unset everything degrades to a no-op decorator."""
 import os
-from typing import Any, Callable
+from contextlib import contextmanager
+from typing import Any, Callable, Iterator
 
 from app.audit import redact
 
 try:  # langsmith is optional at runtime; the mock plane never needs the network
-    from langsmith import traceable as _traceable
+    from langsmith import Client, traceable as _traceable
+    from langchain_core.tracers.context import collect_runs
 except ImportError:  # pragma: no cover - exercised only where langsmith is absent
+    Client = None
     _traceable = None
+    collect_runs = None
 
 
 def tracing_enabled() -> bool:
@@ -52,8 +56,26 @@ def run_config(conversation_id: str, tenant_id: str, versions: dict[str, str]) -
     }
 
 
-def run_url() -> str | None:
-    if not tracing_enabled():
-        return None
-    project = os.environ.get("LANGSMITH_PROJECT", "default")
-    return f"https://smith.langchain.com/projects/p/{project}"
+class RunCapture:
+    """Holds the root run URL of the turn that just executed, so /trace can link the tree."""
+
+    url: str | None = None
+
+
+@contextmanager
+def capture_run() -> Iterator[RunCapture]:
+    """Collect the root run of the enclosed graph invocation and resolve its LangSmith URL."""
+    capture = RunCapture()
+    if not tracing_enabled() or collect_runs is None or Client is None:
+        yield capture
+        return
+    with collect_runs() as collector:
+        yield capture
+    for run in collector.traced_runs:
+        try:
+            capture.url = Client().get_run_url(
+                run=run, project_name=os.environ.get("LANGSMITH_PROJECT")
+            )
+        except Exception:  # pragma: no cover - a trace link must never fail a turn
+            capture.url = None
+        break

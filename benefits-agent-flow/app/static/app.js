@@ -184,13 +184,16 @@ const TRACE_FIELDS = [
   "rung", "executed", "replayed", "verified", "model", "attempt", "timeout",
 ];
 
-function renderTrace(events) {
+function renderTrace(events, runUrl) {
   if (!events.length) {
     tracePanel.textContent = TRACE_EMPTY;
     return;
   }
   const latest = events[events.length - 1].turn_id;
-  tracePanel.innerHTML = events
+  const link = runUrl
+    ? `<div class="runlink"><a href="${runUrl}" target="_blank" rel="noreferrer">Open this turn in LangSmith</a></div>`
+    : "";
+  tracePanel.innerHTML = link + events
     .filter((event) => event.turn_id === latest)
     .map((event) => {
       const fields = TRACE_FIELDS
@@ -206,7 +209,7 @@ async function refreshTrace() {
   const response = await fetch(`/trace/${conversationId}`);
   if (!response.ok) return;
   const body = await response.json();
-  renderTrace(body.events);
+  renderTrace(body.events, body.langsmith_run_url);
 }
 
 async function send(utterance) {

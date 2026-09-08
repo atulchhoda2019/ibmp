@@ -13,10 +13,12 @@ from app import audit
 from app.graph_build import build_graph
 from app.registry import versions
 from app.state import TurnState
-from app.tracing import run_config, run_url
+from app.tracing import capture_run, run_config
 
 app = FastAPI(title="benefits-agent-flow")
 GRAPH = build_graph(os.environ.get("CHECKPOINT_PATH", "var/checkpoints.sqlite"))
+
+RUN_URLS: dict[str, str] = {}
 
 STATIC = pathlib.Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -76,7 +78,10 @@ def turn(req: TurnRequest) -> dict:
         ui_context=req.uiContext,
         clarify_rounds=int(req.uiContext.get("clarify_rounds", 0)),
     )
-    result = GRAPH.invoke(state, config)
+    with capture_run() as run:
+        result = GRAPH.invoke(state, config)
+    if run.url:
+        RUN_URLS[req.conversationId] = run.url
     return result.get("response") or {"kind": "answer", "text": "", "citations": []}
 
 
@@ -87,9 +92,12 @@ def confirm(req: ConfirmRequest) -> dict:
     if not snapshot.next:
         raise HTTPException(status_code=409, detail="no proposal is awaiting confirmation")
     try:
-        result = GRAPH.invoke(
-            Command(resume={"proposal_id": req.proposalId, "nonce": req.nonce}), config
-        )
+        with capture_run() as run:
+            result = GRAPH.invoke(
+                Command(resume={"proposal_id": req.proposalId, "nonce": req.nonce}), config
+            )
+        if run.url:
+            RUN_URLS[req.conversationId] = run.url
     except ValueError as exc:  # nonce mismatch, wrong proposal, or expiry, raised in-graph
         raise HTTPException(status_code=409, detail=str(exc))
     response = result.get("response") or {}
@@ -103,6 +111,6 @@ def trace(conversation_id: str) -> dict:
     return {
         "conversation_id": conversation_id,
         "events": audit.read(conversation_id),
-        "langsmith_run_url": run_url(),
+        "langsmith_run_url": RUN_URLS.get(conversation_id),
         "versions": versions(),
     }
