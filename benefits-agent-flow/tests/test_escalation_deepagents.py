@@ -76,3 +76,32 @@ def test_a_model_that_never_answers_is_bounded_by_the_step_budget(monkeypatch):
     monkeypatch.setenv("ESCALATION_MAX_STEPS", "4")
     model = ScriptedModel(script=[call("list_evidence", {}, str(i)) for i in range(20)])
     assert escalation.compose("loop", ENVELOPE, model=model) == {"error": "GraphRecursionError"}
+
+
+def test_any_openai_compatible_server_can_host_the_frontier(monkeypatch):
+    monkeypatch.setenv("ESCALATION_BASE_URL", "https://api.groq.com/openai/v1")
+    monkeypatch.setenv("ESCALATION_API_KEY", "key-not-real")
+    model = escalation.resolve_model("compat:llama-3.3-70b-versatile")
+    assert model.model_name == "llama-3.3-70b-versatile"
+    assert str(model.openai_api_base) == "https://api.groq.com/openai/v1"
+    assert model.openai_api_key.get_secret_value() == "key-not-real"
+
+
+def test_a_local_server_needs_no_key(monkeypatch):
+    monkeypatch.setenv("ESCALATION_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.delenv("ESCALATION_API_KEY", raising=False)
+    model = escalation.resolve_model("compat:qwen3:8b")
+    assert model.model_name == "qwen3:8b"
+    assert str(model.openai_api_base) == "http://127.0.0.1:11434/v1"
+
+
+def test_a_sequential_reader_can_finish_a_full_envelope():
+    """One tool call per turn over six items must not run out of budget."""
+    envelope = [dict(ENVELOPE[0], item_id=f"ev-{i}") for i in range(1, 7)]
+    model = ScriptedModel(script=(
+        [call("list_evidence", {}, "0")]
+        + [call("read_evidence_item", {"item_id": item["item_id"]}, str(i))
+           for i, item in enumerate(envelope, start=1)]
+        + [AIMessage(content="Your 401k balance is 412300.00 [ev-1].")]
+    ))
+    assert escalation.compose("what is my balance", envelope, model=model)["text"].endswith("[ev-1].")

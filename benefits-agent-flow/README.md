@@ -92,6 +92,20 @@ ESCALATION_BACKEND=deepagents ESCALATION_MODEL=openai:gpt-4.1 OPENAI_API_KEY=sk-
   uvicorn app.main:app --port 8200
 ```
 
+`ESCALATION_MODEL` takes any tool-calling model in one of two shapes:
+
+| spec | endpoint | key |
+| --- | --- | --- |
+| `openai:gpt-4.1`, `anthropic:claude-...` | the provider's own | that provider's env var |
+| `compat:qwen3:8b` + `ESCALATION_BASE_URL` | any OpenAI-compatible server: Ollama, Groq, OpenRouter, vLLM | `ESCALATION_API_KEY`, optional |
+
+GitHub Models is not an option: it was retired on 2026-07-30 and `models.github.ai` now
+answers 410 with a body that still calls it a temporary brownout.
+
+Small local models are the weak link, not the plumbing: an 8B model run against
+`ESCALATION_BASE_URL=http://127.0.0.1:11434/v1` completes the tool loop but often produces
+answers `gate_output` rejects, which costs the turn a human handoff.
+
 `tests/test_escalation.py` covers the ladder with a stubbed frontier;
 `tests/test_escalation_deepagents.py` drives the real harness with a scripted model, so neither
 needs a provider.

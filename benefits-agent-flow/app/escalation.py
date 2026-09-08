@@ -14,7 +14,12 @@ from typing import Any, Callable
 
 ADVISORY_TOOLS = ("list_evidence", "read_evidence_item")
 
+DEFAULT_MODEL = "openai:gpt-4.1"
+
 SYSTEM_PROMPT = """You are a benefits answer composer working under a governance gate.
+
+Always start by calling list_evidence, then read_evidence_item for every id it returns. The
+participant's own plan records are in those items, so never say you cannot reach their data.
 
 You may only use the evidence items handed to you by the tools. Rules the gate enforces
 after you answer, so breaking one wastes the turn:
@@ -66,6 +71,35 @@ def _tools(envelope: list[dict]) -> list[Callable]:
     return [list_evidence, read_evidence_item]
 
 
+def resolve_model(spec: str | None = None) -> Any:
+    """Build the frontier chat model from ESCALATION_MODEL. It must support tool calling.
+
+      openai:gpt-4.1    any langchain provider string, keyed by that provider's env var
+      compat:qwen3:8b   any OpenAI-compatible endpoint (Ollama, Groq, OpenRouter, vLLM),
+                        addressed by ESCALATION_BASE_URL and keyed by ESCALATION_API_KEY
+    """
+    from langchain.chat_models import init_chat_model
+
+    spec = spec or os.environ.get("ESCALATION_MODEL", DEFAULT_MODEL)
+    base_url = os.environ.get("ESCALATION_BASE_URL")
+    api_key = os.environ.get("ESCALATION_API_KEY")
+    if not spec.startswith("compat:"):
+        return init_chat_model(spec)
+    spec = spec.split(":", 1)[1]
+    # An OpenAI-compatible server speaks the OpenAI wire format, so that client drives it.
+    return init_chat_model(spec, model_provider="openai", base_url=base_url,
+                           api_key=api_key or "unused", temperature=0)
+
+
+def _budget(items: int) -> int:
+    """Steps the loop may take: enough to read every item one call at a time, and answer.
+
+    A small model reads sequentially — list_evidence, then one read_evidence_item per item,
+    each costing a model step and a tool step — so a flat cap starves a large envelope.
+    """
+    return max(int(os.environ.get("ESCALATION_MAX_STEPS", "12")), 2 * items + 6)
+
+
 def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str, Any]:
     """Run the frontier agent over the envelope. Returns {"text", "model"} or {"error"}.
 
@@ -73,7 +107,7 @@ def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str,
     """
     from deepagents import FilesystemPermission, create_deep_agent
 
-    model = model or os.environ.get("ESCALATION_MODEL", "openai:gpt-4.1")
+    model = model or resolve_model()
     agent = create_deep_agent(
         model=model,
         tools=_tools(envelope),
@@ -85,7 +119,7 @@ def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str,
     try:
         result = agent.invoke(
             {"messages": [{"role": "user", "content": question}]},
-            {"recursion_limit": int(os.environ.get("ESCALATION_MAX_STEPS", "12"))},
+            {"recursion_limit": _budget(len(envelope))},
         )
     except Exception as exc:  # a frontier failure falls through to the human handoff
         return {"error": type(exc).__name__}
@@ -93,4 +127,5 @@ def compose(question: str, envelope: list[dict], model: Any = None) -> dict[str,
     text = messages[-1].content if messages else ""
     if isinstance(text, list):  # content blocks
         text = " ".join(part.get("text", "") for part in text if isinstance(part, dict))
-    return {"text": text.strip(), "model": model if isinstance(model, str) else type(model).__name__}
+    name = getattr(model, "model_name", None) or type(model).__name__
+    return {"text": text.strip(), "model": name}
